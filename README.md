@@ -1,6 +1,3 @@
-<<<<<<< HEAD
-# Software-Engineering-Team-6
-=======
 # GSU Panther Chatbot 🐾
 
 A comprehensive AI-powered academic assistant for Georgia State University students, featuring ChatGPT integration, file management, and voice interaction capabilities.
@@ -299,5 +296,3 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 **Made with ❤️ by GSU Software Engineering Team 6**
-
->>>>>>> frontend
