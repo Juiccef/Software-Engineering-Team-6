@@ -70,6 +70,37 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// OpenAI connection test endpoint
+app.get('/api/test-openai', async (req, res) => {
+  try {
+    const { sendToChatGPT } = require('./api_integration/openaiClient');
+    
+    const result = await sendToChatGPT('Hello! This is a connection test.', []);
+    
+    if (result.success) {
+      res.json({
+        status: 'success',
+        message: 'OpenAI connection is working!',
+        response: result.response,
+        model: result.model,
+        usage: result.usage
+      });
+    } else {
+      res.status(500).json({
+        status: 'error',
+        message: 'OpenAI connection failed',
+        error: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to test OpenAI connection',
+      error: error.message
+    });
+  }
+});
+
 // ==================== ERROR HANDLING ====================
 
 // Global error handling middleware
