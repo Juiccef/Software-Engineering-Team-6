@@ -1,22 +1,28 @@
 import React from 'react';
 import { GSU } from '../constants/colors';
-import OpenAITest from '../components/OpenAITest';
 
 function ScreenHome({ onStart, onGoChat, onGoToFiles, onGoToHistory, onGoVoice }) {
   return (
     <div style={{ 
       display: "flex", 
       flexDirection: "column", 
-      gap: 20,
       height: "100%",
       width: "100%",
-      padding: "0 16px"
+      padding: "0 16px 40px 16px"
     }}>
-      {/* App Title Section */}
-      <div style={{ 
-        textAlign: "center",
-        padding: "20px 0 16px 0"
+      {/* Main Content Container */}
+      <div style={{
+        display: "flex",
+        flexDirection: "column",
+        gap: 20,
+        flex: 1,
+        justifyContent: "space-between"
       }}>
+        {/* App Title Section */}
+        <div style={{ 
+          textAlign: "center",
+          padding: "20px 0 16px 0"
+        }}>
         <h1 style={{ 
           margin: "0 0 8px 0", 
           fontSize: "2rem", 
@@ -495,12 +501,10 @@ function ScreenHome({ onStart, onGoChat, onGoToFiles, onGoToHistory, onGoVoice }
             </div>
           </div>
         </div>
-             </div>
-
-             {/* OpenAI Connection Test - Temporary for testing */}
-             <OpenAITest />
-           </div>
-         );
-       }
+      </div>
+      </div>
+    </div>
+  );
+}
 
        export default ScreenHome;

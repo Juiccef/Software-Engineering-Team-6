@@ -68,7 +68,11 @@ function App() {
       const userText = message.text?.toLowerCase() || '';
       let response = "";
       
-      if (userText.includes('transcript') || userText.includes('upload')) {
+      if (userText.includes('plan') && userText.includes('semester')) {
+        response = "Perfect! I'm excellent at semester planning. I can help you build optimal class schedules that fit your preferences, avoid conflicts, and meet your degree requirements. What type of schedule are you looking for - morning classes, afternoon, or flexible timing?";
+      } else if (userText.includes('campus') && userText.includes('resource')) {
+        response = "I can connect you with various campus resources! I can help you find tutoring services, academic support, career counseling, financial aid information, and campus events. What specific type of support are you looking for?";
+      } else if (userText.includes('transcript') || userText.includes('upload')) {
         response = "Great! I can help you analyze your transcripts. You can upload your academic documents using the 📷 button in the chat. Once uploaded, I'll help you understand your progress and suggest next steps for your degree.";
       } else if (userText.includes('degree') || userText.includes('audit')) {
         response = "I can help you with degree planning and audits! I can analyze your current progress, identify remaining requirements, and suggest courses to complete your degree efficiently. Would you like me to help you plan your next semester?";
@@ -76,8 +80,6 @@ function App() {
         response = "Perfect! I'm excellent at schedule planning. I can help you build optimal class schedules that fit your preferences, avoid conflicts, and meet your degree requirements. What type of schedule are you looking for - morning classes, afternoon, or flexible timing?";
       } else if (userText.includes('voice') || userText.includes('speak')) {
         response = "I'd love to chat with you using voice! Click the voice button above or use the 🎤 Start Voice Chat button to begin a voice conversation. I can understand natural speech and respond conversationally.";
-      } else if (userText.includes('resource') || userText.includes('help')) {
-        response = "I can connect you with various campus resources! I can help you find tutoring services, academic support, career counseling, financial aid information, and campus events. What specific type of support are you looking for?";
       } else if (userText.includes('event') || userText.includes('campus')) {
         response = "I can help you discover campus events and activities! I can show you upcoming academic events, social activities, career fairs, and student organization meetings. Are you looking for academic, social, or career-related events?";
       } else {
@@ -179,6 +181,7 @@ function App() {
             <ScreenChat 
               onOpenVoice={() => go("voice")}
               onGoToFiles={goToFiles}
+              onSendMessage={handleSendMessage}
             />
           )}
           {screen === "voice" && <ScreenVoice onBackToChat={() => go("chat")} />}

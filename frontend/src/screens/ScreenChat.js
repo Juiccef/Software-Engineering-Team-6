@@ -1,7 +1,7 @@
 import React from 'react';
 import { GSU } from '../constants/colors';
 
-function ScreenChat({ onOpenVoice, onGoToFiles }) {
+function ScreenChat({ onOpenVoice, onGoToFiles, onSendMessage }) {
   return (
     <div style={{ 
       display: "flex", 
@@ -230,7 +230,7 @@ function ScreenChat({ onOpenVoice, onGoToFiles }) {
         </div>
       </div>
 
-      {/* Recent History Section */}
+      {/* quick select Section */}
       <div style={{ marginTop: 8 }}>
         <div style={{ 
           display: "flex", 
@@ -239,7 +239,7 @@ function ScreenChat({ onOpenVoice, onGoToFiles }) {
           marginBottom: 16
         }}>
           <h3 style={{ margin: 0, fontSize: "1.2rem", fontWeight: "bold", color: "var(--fg)" }}>
-            Recent history
+            Quick Select
           </h3>
           <span style={{ 
             color: "var(--fg)", 
@@ -252,15 +252,31 @@ function ScreenChat({ onOpenVoice, onGoToFiles }) {
         </div>
         
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div style={{ 
-            background: "var(--card)",
-            borderRadius: 12,
-            padding: 16,
-            border: "1px solid var(--line)",
-            display: "flex",
-            alignItems: "center",
-            gap: 12
-          }}>
+          <div 
+            onClick={() => onSendMessage && onSendMessage({
+              role: "user",
+              text: "Help me plan my next semester courses"
+            })}
+            style={{ 
+              background: "var(--card)",
+              borderRadius: 12,
+              padding: 16,
+              border: "1px solid var(--line)",
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              cursor: "pointer",
+              transition: "all 0.2s ease"
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = "var(--hover)";
+              e.target.style.transform = "translateY(-1px)";
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = "var(--card)";
+              e.target.style.transform = "translateY(0)";
+            }}
+          >
             <div style={{ 
               width: 40,
               height: 40,
@@ -271,11 +287,11 @@ function ScreenChat({ onOpenVoice, onGoToFiles }) {
               justifyContent: "center",
               fontSize: "1.2rem"
             }}>
-              💬
+              📚
             </div>
             <div style={{ flex: 1 }}>
               <p style={{ margin: 0, fontSize: "0.95rem", color: "var(--fg)" }}>
-                Help me check my degree audit
+                Help me plan my next semester courses
               </p>
             </div>
             <div style={{ 
@@ -287,19 +303,35 @@ function ScreenChat({ onOpenVoice, onGoToFiles }) {
               cursor: "pointer",
               opacity: 0.6
             }}>
-              ⋮
+              →
             </div>
           </div>
           
-          <div style={{ 
-            background: "var(--card)",
-            borderRadius: 12,
-            padding: 16,
-            border: "1px solid var(--line)",
-            display: "flex",
-            alignItems: "center",
-            gap: 12
-          }}>
+          <div 
+            onClick={() => onSendMessage && onSendMessage({
+              role: "user",
+              text: "What campus resources are available?"
+            })}
+            style={{ 
+              background: "var(--card)",
+              borderRadius: 12,
+              padding: 16,
+              border: "1px solid var(--line)",
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              cursor: "pointer",
+              transition: "all 0.2s ease"
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = "var(--hover)";
+              e.target.style.transform = "translateY(-1px)";
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = "var(--card)";
+              e.target.style.transform = "translateY(0)";
+            }}
+          >
             <div style={{ 
               width: 40,
               height: 40,
@@ -310,11 +342,11 @@ function ScreenChat({ onOpenVoice, onGoToFiles }) {
               justifyContent: "center",
               fontSize: "1.2rem"
             }}>
-              🎤
+              🏛️
             </div>
             <div style={{ flex: 1 }}>
               <p style={{ margin: 0, fontSize: "0.95rem", color: "var(--fg)" }}>
-                Show me upcoming campus events
+                What campus resources are available?
               </p>
             </div>
             <div style={{ 
@@ -326,7 +358,7 @@ function ScreenChat({ onOpenVoice, onGoToFiles }) {
               cursor: "pointer",
               opacity: 0.6
             }}>
-              ⋮
+              →
             </div>
           </div>
         </div>
