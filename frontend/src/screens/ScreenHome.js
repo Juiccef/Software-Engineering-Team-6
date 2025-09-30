@@ -1,5 +1,6 @@
 import React from 'react';
 import { GSU } from '../constants/colors';
+import OpenAITest from '../components/OpenAITest';
 
 function ScreenHome({ onStart, onGoChat, onGoToFiles, onGoToHistory, onGoVoice }) {
   return (
@@ -494,9 +495,12 @@ function ScreenHome({ onStart, onGoChat, onGoToFiles, onGoToHistory, onGoVoice }
             </div>
           </div>
         </div>
-      </div>
-    </div>
-  );
-}
+             </div>
 
-export default ScreenHome;
+             {/* OpenAI Connection Test - Temporary for testing */}
+             <OpenAITest />
+           </div>
+         );
+       }
+
+       export default ScreenHome;
