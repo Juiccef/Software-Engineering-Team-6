@@ -66,3 +66,27 @@ input:focus-visible {
 ::-webkit-scrollbar-thumb:hover {
   background: #1e3f7f;
 }
+
+/* Typing animation for chat indicator */
+@keyframes typing {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-10px);
+    opacity: 1;
+  }
+}
+
+/* Pulse animation for FBX container loading indicator */
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  50% {
+    transform: scale(1.2);
+    opacity: 1;
+  }
+}

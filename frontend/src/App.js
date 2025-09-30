@@ -1,3 +1,16 @@
+/**
+ * GSU Panther Chatbot - Main Application Component
+ * 
+ * This is the root component that manages:
+ * - Global application state (theme, current screen, messages)
+ * - Navigation between different screens
+ * - Message handling and bot responses
+ * - Quick action processing
+ * 
+ * @author GSU Software Engineering Team 6
+ * @version 1.0.0
+ */
+
 import React, { useState } from 'react';
 import { useTheme } from './hooks/useTheme';
 import Layout from './components/Layout';
@@ -7,10 +20,24 @@ import ScreenVoice from './screens/ScreenVoice';
 import ScreenFiles from './screens/ScreenFiles';
 import ScreenHistory from './screens/ScreenHistory';
 
+/**
+ * Main App Component
+ * 
+ * Manages the overall application state and routing between screens.
+ * Handles theme switching, message processing, and navigation.
+ * 
+ * @returns {JSX.Element} The main application component
+ */
 function App() {
+  // Theme management hook
   const { mode, setMode, vars } = useTheme();
-  const [screen, setScreen] = useState("home");
-  const [filesSection, setFilesSection] = useState("academic");
+  
+  // Application state
+  const [screen, setScreen] = useState("home"); // Current active screen
+  const [filesSection, setFilesSection] = useState("academic"); // Active section in files screen
+  const [isTyping, setIsTyping] = useState(false); // Bot typing indicator
+  
+  // Initial chat messages with welcome content
   const [messages, setMessages] = useState([
     { 
       id: "1", 
@@ -25,9 +52,16 @@ function App() {
     },
   ]);
 
-  // Handle sending messages
+  /**
+   * Handles sending messages to the chat
+   * 
+   * @param {Object} message - The message object containing role and text
+   * @param {string} message.role - Either "user" or "bot"
+   * @param {string} message.text - The message content
+   */
   const handleSendMessage = (message) => {
     setMessages(prev => [...prev, message]);
+    setIsTyping(true); // Show typing indicator
     
     // Simulate bot response based on message content
     setTimeout(() => {
@@ -55,10 +89,15 @@ function App() {
         role: "bot",
         text: response
       }]);
+      setIsTyping(false); // Hide typing indicator
     }, 1000);
   };
 
-  // Handle quick actions
+  /**
+   * Handles quick action button clicks
+   * 
+   * @param {string} actionId - The ID of the quick action clicked
+   */
   const handleQuickAction = (actionId) => {
     const actionMessages = {
       transcript: "I'd like to upload my transcripts for analysis",
@@ -75,12 +114,20 @@ function App() {
     }
   };
 
-  // simple route helpers
-  const go = (s) => {
-    setScreen(s);
+  /**
+   * Simple navigation helper to change screens
+   * 
+   * @param {string} screenName - The name of the screen to navigate to
+   */
+  const go = (screenName) => {
+    setScreen(screenName);
   };
 
-  // Navigate to files page with specific section
+  /**
+   * Navigate to files page with a specific section active
+   * 
+   * @param {string} section - The section to show in files screen
+   */
   const goToFiles = (section) => {
     setFilesSection(section);
     setScreen("files");
@@ -98,8 +145,9 @@ function App() {
         messages={messages}
         onSendMessage={handleSendMessage}
         onQuickAction={handleQuickAction}
-        showChatBox={true}
+        showChatBox={screen === "chat"}
         mode={mode}
+        isTyping={isTyping}
         onToggleTheme={() => setMode(mode === "dark" ? "light" : "dark")}
         onLogoClick={() => go('home')}
         onNavigate={(route) => {
@@ -124,6 +172,7 @@ function App() {
               onGoChat={() => go("chat")}
               onGoToFiles={goToFiles}
               onGoToHistory={() => go("history")}
+              onGoVoice={() => go("voice")}
             />
           )}
           {screen === "chat" && (

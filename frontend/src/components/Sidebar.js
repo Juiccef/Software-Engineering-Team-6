@@ -17,6 +17,7 @@ function Sidebar({ open, onClose, onGo }) {
         position: "fixed",
         inset: 0,
         pointerEvents: open ? "auto" : "none",
+        zIndex: 2000, // Higher than header (1000) and modals (1000)
       }}
     >
       {/* backdrop */}
@@ -47,6 +48,8 @@ function Sidebar({ open, onClose, onGo }) {
           flexDirection: "column",
           padding: 16,
           gap: 12,
+          zIndex: 2001, // Even higher than the backdrop
+          boxShadow: "2px 0 10px rgba(0,0,0,0.1)", // Add shadow for depth
         }}
       >
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
