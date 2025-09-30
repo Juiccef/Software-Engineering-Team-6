@@ -1,6 +1,4 @@
 import React, { useState } from 'react';
-import Card from '../components/Card';
-import Badge from '../components/Badge';
 import { GSU } from '../constants/colors';
 
 function ScreenVoice({ onBackToChat }) {
@@ -8,7 +6,14 @@ function ScreenVoice({ onBackToChat }) {
   
   return (
     <div style={{ display: "grid", gap: 16 }}>
-      <Card style={{ textAlign: "center" }}>
+      <div style={{ 
+        background: "var(--card)",
+        border: "1px solid var(--line)",
+        borderRadius: 16,
+        padding: 16,
+        boxShadow: "0 8px 24px rgba(0,0,0,0.15)",
+        textAlign: "center" 
+      }}>
         <img
           src="https://upload.wikimedia.org/wikipedia/en/0/0c/Georgia_State_Panthers_logo.svg"
           alt="Panther head"
@@ -19,8 +24,26 @@ function ScreenVoice({ onBackToChat }) {
           Ask advising questions, say a course list, or describe your schedule constraints.
         </p>
         <div style={{ display: "flex", justifyContent: "center", gap: 10, marginTop: 6 }}>
-          <Badge>Speech → Text</Badge>
-          <Badge>Auto-send to chat</Badge>
+          <span style={{
+            display: "inline-flex",
+            alignItems: "center",
+            padding: "6px 10px",
+            borderRadius: 999,
+            background: "rgba(0,0,0,0.08)",
+            border: `1px solid var(--line)`,
+            fontSize: 12,
+            gap: 6,
+          }}>Speech → Text</span>
+          <span style={{
+            display: "inline-flex",
+            alignItems: "center",
+            padding: "6px 10px",
+            borderRadius: 999,
+            background: "rgba(0,0,0,0.08)",
+            border: `1px solid var(--line)`,
+            fontSize: 12,
+            gap: 6,
+          }}>Auto-send to chat</span>
         </div>
         <div style={{ marginTop: 18 }}>
           <button
@@ -59,11 +82,17 @@ function ScreenVoice({ onBackToChat }) {
             Back to chat
           </button>
         </div>
-      </Card>
+      </div>
 
-      <Card>
+      <div style={{ 
+        background: "var(--card)",
+        border: "1px solid var(--line)",
+        borderRadius: 16,
+        padding: 16,
+        boxShadow: "0 8px 24px rgba(0,0,0,0.15)"
+      }}>
         <strong>Tip:</strong> When you tap the Pounce banner on the Chat screen, you'll jump straight here. After recording, we'll insert the transcript into the chat input automatically (wire up your STT API here).
-      </Card>
+      </div>
     </div>
   );
 }
