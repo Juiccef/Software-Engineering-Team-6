@@ -59,40 +59,78 @@ function App() {
    * @param {string} message.role - Either "user" or "bot"
    * @param {string} message.text - The message content
    */
-  const handleSendMessage = (message) => {
+  const handleSendMessage = async (message) => {
     setMessages(prev => [...prev, message]);
     setIsTyping(true); // Show typing indicator
     
-    // Simulate bot response based on message content
-    setTimeout(() => {
+    try {
+      // Call the backend API
+      const response = await fetch('http://localhost:5001/api/chat/message', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          message: message.text,
+          conversationHistory: messages.slice(-10) // Send last 10 messages for context
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.success) {
+        setMessages(prev => [...prev, {
+          id: Math.random().toString(36).slice(2),
+          role: "bot",
+          text: data.response,
+          hasContext: data.hasContext || false,
+          context: data.context || null
+        }]);
+      } else {
+        // Fallback to hardcoded response if API fails
+        setMessages(prev => [...prev, {
+          id: Math.random().toString(36).slice(2),
+          role: "bot",
+          text: data.response || "I apologize, but I'm having trouble connecting right now. Please try again in a moment."
+        }]);
+      }
+    } catch (error) {
+      console.error('Error calling chat API:', error);
+      
+      // Fallback to hardcoded responses for common queries
       const userText = message.text?.toLowerCase() || '';
-      let response = "";
+      let fallbackResponse = "";
       
       if (userText.includes('plan') && userText.includes('semester')) {
-        response = "Perfect! I'm excellent at semester planning. I can help you build optimal class schedules that fit your preferences, avoid conflicts, and meet your degree requirements. What type of schedule are you looking for - morning classes, afternoon, or flexible timing?";
+        fallbackResponse = "Perfect! I'm excellent at semester planning. I can help you build optimal class schedules that fit your preferences, avoid conflicts, and meet your degree requirements. What type of schedule are you looking for - morning classes, afternoon, or flexible timing?";
       } else if (userText.includes('campus') && userText.includes('resource')) {
-        response = "I can connect you with various campus resources! I can help you find tutoring services, academic support, career counseling, financial aid information, and campus events. What specific type of support are you looking for?";
+        fallbackResponse = "I can connect you with various campus resources! I can help you find tutoring services, academic support, career counseling, financial aid information, and campus events. What specific type of support are you looking for?";
       } else if (userText.includes('transcript') || userText.includes('upload')) {
-        response = "Great! I can help you analyze your transcripts. You can upload your academic documents using the 📷 button in the chat. Once uploaded, I'll help you understand your progress and suggest next steps for your degree.";
+        fallbackResponse = "Great! I can help you analyze your transcripts. You can upload your academic documents using the 📷 button in the chat. Once uploaded, I'll help you understand your progress and suggest next steps for your degree.";
       } else if (userText.includes('degree') || userText.includes('audit')) {
-        response = "I can help you with degree planning and audits! I can analyze your current progress, identify remaining requirements, and suggest courses to complete your degree efficiently. Would you like me to help you plan your next semester?";
+        fallbackResponse = "I can help you with degree planning and audits! I can analyze your current progress, identify remaining requirements, and suggest courses to complete your degree efficiently. Would you like me to help you plan your next semester?";
       } else if (userText.includes('schedule') || userText.includes('planning')) {
-        response = "Perfect! I'm excellent at schedule planning. I can help you build optimal class schedules that fit your preferences, avoid conflicts, and meet your degree requirements. What type of schedule are you looking for - morning classes, afternoon, or flexible timing?";
+        fallbackResponse = "Perfect! I'm excellent at schedule planning. I can help you build optimal class schedules that fit your preferences, avoid conflicts, and meet your degree requirements. What type of schedule are you looking for - morning classes, afternoon, or flexible timing?";
       } else if (userText.includes('voice') || userText.includes('speak')) {
-        response = "I'd love to chat with you using voice! Click the voice button above or use the 🎤 Start Voice Chat button to begin a voice conversation. I can understand natural speech and respond conversationally.";
+        fallbackResponse = "I'd love to chat with you using voice! Click the voice button above or use the 🎤 Start Voice Chat button to begin a voice conversation. I can understand natural speech and respond conversationally.";
       } else if (userText.includes('event') || userText.includes('campus')) {
-        response = "I can help you discover campus events and activities! I can show you upcoming academic events, social activities, career fairs, and student organization meetings. Are you looking for academic, social, or career-related events?";
+        fallbackResponse = "I can help you discover campus events and activities! I can show you upcoming academic events, social activities, career fairs, and student organization meetings. Are you looking for academic, social, or career-related events?";
       } else {
-        response = "Thanks for your message! I'm here to help with all aspects of your GSU experience. You can ask me about:\n\n• Academic planning and course selection\n• Schedule building and optimization\n• Degree requirements and audits\n• Campus resources and support\n• Events and activities\n• Voice conversations\n\nWhat would you like to explore?";
+        fallbackResponse = "Thanks for your message! I'm here to help with all aspects of your GSU experience. You can ask me about:\n\n• Academic planning and course selection\n• Schedule building and optimization\n• Degree requirements and audits\n• Campus resources and support\n• Events and activities\n• Voice conversations\n\nWhat would you like to explore?";
       }
       
       setMessages(prev => [...prev, {
         id: Math.random().toString(36).slice(2),
         role: "bot",
-        text: response
+        text: fallbackResponse
       }]);
-      setIsTyping(false); // Hide typing indicator
-    }, 1000);
+    }
+    
+    setIsTyping(false); // Hide typing indicator
   };
 
   /**
