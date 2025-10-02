@@ -1,5 +1,6 @@
 const express = require('express');
 const { sendToChatGPT, getQuickResponse } = require('./openaiClient');
+const { sendToChatGPTWithContext, isPineconeAvailable } = require('./pineconeClient');
 
 const router = express.Router();
 
@@ -25,8 +26,14 @@ router.post('/message', async (req, res) => {
       return res.json(quickResponse);
     }
 
-    // Send to ChatGPT
-    const result = await sendToChatGPT(message, conversationHistory, options);
+    // Try context-aware response with Pinecone if available
+    let result;
+    if (isPineconeAvailable()) {
+      result = await sendToChatGPTWithContext(message, conversationHistory, options);
+    } else {
+      // Fallback to regular ChatGPT response
+      result = await sendToChatGPT(message, conversationHistory, options);
+    }
 
     if (result.success) {
       res.json({
@@ -34,6 +41,8 @@ router.post('/message', async (req, res) => {
         response: result.response,
         usage: result.usage,
         model: result.model,
+        hasContext: result.hasContext || false,
+        context: result.context || null,
         timestamp: new Date().toISOString()
       });
     } else {
@@ -91,8 +100,14 @@ router.post('/stream', async (req, res) => {
       return;
     }
 
-    // For now, send regular response (streaming can be implemented later)
-    const result = await sendToChatGPT(message, conversationHistory, options);
+    // Try context-aware response with Pinecone if available
+    let result;
+    if (isPineconeAvailable()) {
+      result = await sendToChatGPTWithContext(message, conversationHistory, options);
+    } else {
+      // Fallback to regular ChatGPT response
+      result = await sendToChatGPT(message, conversationHistory, options);
+    }
     
     if (result.success) {
       res.write(`data: {"type":"response","content":"${result.response}"}\n\n`);
@@ -113,18 +128,22 @@ router.post('/stream', async (req, res) => {
 
 /**
  * GET /api/chat/status
- * Check if ChatGPT integration is working
+ * Check if ChatGPT and Pinecone integration are working
  */
 router.get('/status', async (req, res) => {
   try {
     const { getOpenAIClient } = require('./openaiClient');
+    const { getPineconeStatus } = require('./pineconeClient');
+    
     const client = getOpenAIClient();
+    const pineconeStatus = getPineconeStatus();
     
     if (!client) {
       return res.json({
         success: false,
         status: 'OpenAI client not initialized',
-        message: 'Please check your API key configuration'
+        message: 'Please check your API key configuration',
+        pinecone: pineconeStatus
       });
     }
 
@@ -135,6 +154,7 @@ router.get('/status', async (req, res) => {
       success: testResult.success,
       status: testResult.success ? 'Connected' : 'Error',
       message: testResult.success ? 'ChatGPT integration is working' : testResult.error,
+      pinecone: pineconeStatus,
       timestamp: new Date().toISOString()
     });
 

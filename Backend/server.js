@@ -23,6 +23,7 @@ require('dotenv').config();
 // Import custom modules
 const chatRoutes = require('./api_integration/chatRoutes');
 const { initializeOpenAI } = require('./api_integration/openaiClient');
+const { initializePinecone } = require('./api_integration/pineconeClient');
 
 // Initialize Express app
 const app = express();
@@ -55,6 +56,9 @@ app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 
 // Initialize OpenAI client
 initializeOpenAI();
+
+// Initialize Pinecone client
+initializePinecone();
 
 // ==================== ROUTES ====================
 
