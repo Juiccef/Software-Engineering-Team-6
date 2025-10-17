@@ -11,7 +11,7 @@
  * @version 1.0.0
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useTheme } from './hooks/useTheme';
 import Layout from './components/Layout';
 import ScreenHome from './screens/ScreenHome';
@@ -19,6 +19,7 @@ import ScreenChat from './screens/ScreenChat';
 import ScreenVoice from './screens/ScreenVoice';
 import ScreenFiles from './screens/ScreenFiles';
 import ScreenHistory from './screens/ScreenHistory';
+import chatHistoryService from './services/chatHistoryService';
 
 /**
  * Main App Component
@@ -36,6 +37,8 @@ function App() {
   const [screen, setScreen] = useState("home"); // Current active screen
   const [filesSection, setFilesSection] = useState("academic"); // Active section in files screen
   const [isTyping, setIsTyping] = useState(false); // Bot typing indicator
+  const [currentSessionId, setCurrentSessionId] = useState(null); // Current chat session ID
+  const [chatHistory, setChatHistory] = useState([]); // Chat history for history screen
   
   // Initial chat messages with welcome content
   const [messages, setMessages] = useState([
@@ -52,6 +55,82 @@ function App() {
     },
   ]);
 
+  // Load chat history on component mount
+  useEffect(() => {
+    loadChatHistory();
+  }, []);
+
+  // Generate new session ID when entering chat screen
+  useEffect(() => {
+    if (screen === "chat" && !currentSessionId) {
+      setCurrentSessionId(chatHistoryService.generateId());
+    }
+  }, [screen, currentSessionId]);
+
+  // Reset messages when starting a new chat
+  const startNewChat = () => {
+    setCurrentSessionId(chatHistoryService.generateId());
+    setMessages([
+      { 
+        id: "1", 
+        role: "bot", 
+        text: "Hi! I'm Pounce Assistant, your digital guide to advising, course planning, deadlines, and campus life at Georgia State University. How can I help you today?" 
+      },
+      { 
+        id: "2", 
+        role: "bot", 
+        text: "Here's what I can help you with:\n\n🎓 **Academic Advising** - Get personalized course recommendations and degree planning assistance\n📅 **Schedule Planning** - Build optimal class schedules that fit your preferences and requirements\n🎤 **Voice Assistant** - Speak naturally with me using advanced speech recognition\n\nWhat would you like to explore first?",
+        showQuickActions: true
+      },
+    ]);
+    setScreen("chat");
+  };
+
+  /**
+   * Load chat history from Supabase or localStorage
+   */
+  const loadChatHistory = async () => {
+    try {
+      const history = await chatHistoryService.getHistory();
+      setChatHistory(history);
+    } catch (error) {
+      console.error('Failed to load chat history:', error);
+    }
+  };
+
+  /**
+   * Save chat session to Supabase or localStorage
+   */
+  const saveChatSession = async (sessionData) => {
+    try {
+      const { id, title, messages, type } = sessionData;
+      const result = await chatHistoryService.saveSession({
+        id: id,
+        title: title || chatHistoryService.generateTitle(messages),
+        messages: messages,
+        type: type || 'chat'
+      });
+      console.log('✅ Chat session saved:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ Failed to save chat session:', error);
+      return null;
+    }
+  };
+
+  /**
+   * Load a specific chat session from history
+   */
+  const loadChatSession = async (chat) => {
+    try {
+      setCurrentSessionId(chat.id);
+      setMessages(chat.messages || []);
+      setScreen("chat");
+    } catch (error) {
+      console.error('Failed to load chat session:', error);
+    }
+  };
+
   /**
    * Handles sending messages to the chat
    * 
@@ -60,7 +139,8 @@ function App() {
    * @param {string} message.text - The message content
    */
   const handleSendMessage = async (message) => {
-    setMessages(prev => [...prev, message]);
+    const updatedMessages = [...messages, message];
+    setMessages(updatedMessages);
     setIsTyping(true); // Show typing indicator
     
     try {
@@ -82,21 +162,34 @@ function App() {
 
       const data = await response.json();
       
+      let botResponse;
       if (data.success) {
-        setMessages(prev => [...prev, {
+        botResponse = {
           id: Math.random().toString(36).slice(2),
           role: "bot",
           text: data.response,
           hasContext: data.hasContext || false,
           context: data.context || null
-        }]);
+        };
       } else {
         // Fallback to hardcoded response if API fails
-        setMessages(prev => [...prev, {
+        botResponse = {
           id: Math.random().toString(36).slice(2),
           role: "bot",
           text: data.response || "I apologize, but I'm having trouble connecting right now. Please try again in a moment."
-        }]);
+        };
+      }
+
+      const finalMessages = [...updatedMessages, botResponse];
+      setMessages(finalMessages);
+
+      // Save the chat session
+      if (currentSessionId) {
+        await saveChatSession({
+          id: currentSessionId,
+          messages: finalMessages,
+          type: 'chat'
+        });
       }
     } catch (error) {
       console.error('Error calling chat API:', error);
@@ -123,11 +216,23 @@ function App() {
         fallbackResponse = "Thanks for your message! I'm here to help with all aspects of your GSU experience. You can ask me about:\n\n• Academic planning and course selection\n• Schedule building and optimization\n• Degree requirements and audits\n• Campus resources and support\n• Events and activities\n• Voice conversations\n\nWhat would you like to explore?";
       }
       
-      setMessages(prev => [...prev, {
+      const botResponse = {
         id: Math.random().toString(36).slice(2),
         role: "bot",
         text: fallbackResponse
-      }]);
+      };
+      
+      const finalMessages = [...updatedMessages, botResponse];
+      setMessages(finalMessages);
+
+      // Save the chat session
+      if (currentSessionId) {
+        await saveChatSession({
+          id: currentSessionId,
+          messages: finalMessages,
+          type: 'chat'
+        });
+      }
     }
     
     setIsTyping(false); // Hide typing indicator
@@ -190,6 +295,7 @@ function App() {
         isTyping={isTyping}
         onToggleTheme={() => setMode(mode === "dark" ? "light" : "dark")}
         onLogoClick={() => go('home')}
+        onNewChat={startNewChat}
         onNavigate={(route) => {
           if (route === "files") {
             goToFiles("academic");
@@ -232,6 +338,7 @@ function App() {
           {screen === "history" && (
             <ScreenHistory 
               onBack={() => go("home")}
+              onLoadChat={loadChatSession}
             />
           )}
         </div>
