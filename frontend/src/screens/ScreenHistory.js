@@ -1,58 +1,183 @@
 import React, { useState } from 'react';
 import { GSU } from '../constants/colors';
 
-function ScreenHistory({ onBack }) {
-  // Sample chat history data
-  const [chatHistory] = useState([
-    {
-      id: 1,
-      title: "Help me plan my next semester courses",
-      preview: "I need help selecting courses for Spring 2024. Can you recommend some classes that would work well with my Computer Science major?",
-      timestamp: "2024-01-15 14:30",
-      messageCount: 8,
-      type: "chat"
-    },
-    {
-      id: 2,
-      title: "What campus resources are available?",
-      preview: "I'm looking for tutoring services and academic support resources on campus.",
-      timestamp: "2024-01-14 09:15",
-      messageCount: 5,
-      type: "voice"
-    },
-    {
-      id: 3,
-      title: "Degree audit questions",
-      preview: "Can you help me understand my degree requirements and what courses I still need to take?",
-      timestamp: "2024-01-13 16:45",
-      messageCount: 12,
-      type: "chat"
-    },
-    {
-      id: 4,
-      title: "Schedule building assistance",
-      preview: "I need help creating a schedule that avoids conflicts and fits my preferences.",
-      timestamp: "2024-01-12 11:20",
-      messageCount: 6,
-      type: "chat"
-    },
-    {
-      id: 5,
-      title: "Campus events and activities",
-      preview: "What upcoming events and activities are happening on campus this month?",
-      timestamp: "2024-01-11 13:10",
-      messageCount: 4,
-      type: "voice"
-    },
-    {
-      id: 6,
-      title: "Financial aid information",
-      preview: "I have questions about my financial aid package and scholarship opportunities.",
-      timestamp: "2024-01-10 15:30",
-      messageCount: 7,
-      type: "chat"
+function ScreenHistory({ onBack, messages, voiceConversation }) {
+  const [selectedConversation, setSelectedConversation] = useState(null);
+  
+  // Combine regular chat messages and voice conversations into unified history
+  const getCombinedHistory = () => {
+    const history = [];
+    
+    // Add regular chat conversations (group by conversation/session)
+    if (messages && messages.length > 0) {
+      // For now, treat all messages as one conversation
+      // In a real app, you'd group by conversation sessions
+      const chatMessages = messages.filter(msg => msg.role === 'user');
+      if (chatMessages.length > 0) {
+        history.push({
+          id: 'chat-' + Date.now(),
+          title: chatMessages[0]?.text?.substring(0, 50) + '...' || 'Chat Conversation',
+          preview: chatMessages[0]?.text || 'Regular chat conversation',
+          timestamp: new Date().toISOString(),
+          messageCount: messages.length,
+          type: 'chat',
+          data: messages
+        });
+      }
     }
-  ]);
+    
+    // Add voice conversations
+    if (voiceConversation && voiceConversation.length > 0) {
+      // Group voice messages by conversation (you could improve this logic)
+      const userMessages = voiceConversation.filter(msg => msg.role === 'user');
+      if (userMessages.length > 0) {
+        history.push({
+          id: 'voice-' + Date.now(),
+          title: userMessages[0]?.text?.substring(0, 50) + '...' || 'Voice Conversation',
+          preview: userMessages[0]?.text || 'Voice conversation with Pounce',
+          timestamp: new Date().toISOString(),
+          messageCount: voiceConversation.length,
+          type: 'voice',
+          data: voiceConversation
+        });
+      }
+    }
+    
+    // Sort by timestamp (newest first)
+    return history.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  };
+
+  const [chatHistory] = useState(getCombinedHistory());
+
+  const handleConversationClick = (conversation) => {
+    setSelectedConversation(conversation);
+  };
+
+  const handleBackToList = () => {
+    setSelectedConversation(null);
+  };
+
+  // If a conversation is selected, show the detailed view
+  if (selectedConversation) {
+    return (
+      <div style={{ 
+        display: "flex", 
+        flexDirection: "column", 
+        height: "100%",
+        width: "100%",
+        padding: "0 16px"
+      }}>
+        {/* Header for conversation detail */}
+        <div style={{ 
+          padding: "20px 0 16px 0",
+          borderBottom: "1px solid var(--line)",
+          display: "flex",
+          alignItems: "center",
+          gap: 12
+        }}>
+          <button
+            onClick={handleBackToList}
+            style={{
+              background: "none",
+              border: "none",
+              fontSize: "1.2rem",
+              cursor: "pointer",
+              color: "var(--fg)",
+              padding: "4px"
+            }}
+          >
+            ← Back
+          </button>
+          <div>
+            <h1 style={{ 
+              margin: "0 0 4px 0", 
+              fontSize: "1.4rem", 
+              fontWeight: "bold", 
+              color: "var(--fg)",
+              display: "flex",
+              alignItems: "center",
+              gap: 8
+            }}>
+              {selectedConversation.type === 'voice' ? '🎤' : '💬'} 
+              {selectedConversation.title}
+            </h1>
+            <p style={{ 
+              margin: 0, 
+              opacity: 0.7, 
+              fontSize: "0.85rem" 
+            }}>
+              {selectedConversation.messageCount} messages • {formatTimestamp(selectedConversation.timestamp)}
+            </p>
+          </div>
+        </div>
+
+        {/* Conversation transcript */}
+        <div style={{ 
+          flex: 1, 
+          overflow: "auto",
+          padding: "20px 0",
+          display: "flex",
+          flexDirection: "column",
+          gap: 16
+        }}>
+          {selectedConversation.data.map((message, index) => (
+            <div
+              key={index}
+              style={{
+                display: "flex",
+                flexDirection: message.role === 'user' ? 'row-reverse' : 'row',
+                gap: 12,
+                alignItems: "flex-start"
+              }}
+            >
+              <div style={{
+                width: 32,
+                height: 32,
+                borderRadius: "50%",
+                background: message.role === 'user' ? '#4682b4' : '#f0f0f0',
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: "0.8rem",
+                flexShrink: 0
+              }}>
+                {message.role === 'user' ? '👤' : '🤖'}
+              </div>
+              <div style={{
+                background: message.role === 'user' 
+                  ? 'rgba(70, 130, 180, 0.1)' 
+                  : 'var(--card)',
+                border: `1px solid ${message.role === 'user' 
+                  ? 'rgba(70, 130, 180, 0.2)' 
+                  : 'var(--line)'}`,
+                borderRadius: 12,
+                padding: 12,
+                maxWidth: '75%',
+                wordWrap: 'break-word'
+              }}>
+                <div style={{
+                  fontSize: '0.75rem',
+                  opacity: 0.7,
+                  marginBottom: 4,
+                  fontWeight: 'bold'
+                }}>
+                  {message.role === 'user' ? 'You' : 'Pounce'}
+                  {message.timestamp && ` • ${message.timestamp}`}
+                </div>
+                <div style={{
+                  fontSize: '0.9rem',
+                  lineHeight: 1.4,
+                  color: 'var(--fg)'
+                }}>
+                  {message.text}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   const getTypeIcon = (type) => {
     return type === 'voice' ? '🎤' : '💬';
@@ -136,6 +261,7 @@ function ScreenHistory({ onBack }) {
         {chatHistory.map((chat) => (
           <div
             key={chat.id}
+            onClick={() => handleConversationClick(chat)}
             style={{ 
               background: "var(--card)",
               borderRadius: 12,

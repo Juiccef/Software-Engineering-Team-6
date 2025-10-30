@@ -31,5 +31,15 @@
       "last 1 firefox version",
       "last 1 safari version"
     ]
-  }
+  },
+  "devDependencies": {
+    "typescript": "^4.9.5"
+  },
+  "overrides": {
+    "ajv": "6.12.6",
+    "ajv-keywords": "3.5.2",
+    "schema-utils": "3.3.0",
+    "babel-loader": "8.2.5"
+  },
+  "proxy": "http://localhost:5001"
 }

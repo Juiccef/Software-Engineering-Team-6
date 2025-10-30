@@ -1,3 +1,12 @@
+import React, { useState, useEffect } from 'react';
+import { useTheme } from './hooks/useTheme';
+import Layout from './components/Layout';
+import ScreenHome from './screens/ScreenHome';
+import ScreenChat from './screens/ScreenChat';
+import ScreenVoice from './screens/ScreenVoice';
+import ScreenFiles from './screens/ScreenFiles';
+import ScreenHistory from './screens/ScreenHistory';
+
 /**
  * GSU Panther Chatbot - Main Application Component
  * 
@@ -11,14 +20,36 @@
  * @version 1.0.0
  */
 
-import React, { useState } from 'react';
-import { useTheme } from './hooks/useTheme';
-import Layout from './components/Layout';
-import ScreenHome from './screens/ScreenHome';
-import ScreenChat from './screens/ScreenChat';
-import ScreenVoice from './screens/ScreenVoice';
-import ScreenFiles from './screens/ScreenFiles';
-import ScreenHistory from './screens/ScreenHistory';
+/**
+  const [messages, setMessages] = useState([
+    { 
+      id: "1", 
+      role: "bot", 
+      text: "Hi! I'm Pounce Assistant, your digital guide to advising, course planning, deadlines, and campus life at Georgia State University. How can I help you today?" 
+    },
+    { 
+      id: "2", 
+      role: "bot", 
+      text: "Here's what I can help you with:\n\n🎓 **Academic Advising** - Get personalized course recommendations and degree planning assistance\n📅 **Schedule Planning** - Build optimal class schedules that fit your preferences and requirements\n🎤 **Voice Assistant** - Speak naturally with me using advanced speech recognition\n\nWhat would you like to explore first?",
+      quickActions: [
+        { id: "academic", label: "Academic Help", emoji: "🎓" },
+        { id: "schedule", label: "Plan Schedule", emoji: "📅" },
+        { id: "voice", label: "Voice Chat", emoji: "🎤" }
+      ]
+    }
+  ]);
+
+  /**
+ * 
+ * This is the root component that manages:
+ * - Global application state (theme, current screen, messages)
+ * - Navigation between different screens
+ * - Message handling and bot responses
+ * - Quick action processing
+ * 
+ * @author GSU Software Engineering Team 6
+ * @version 1.0.0
+ */
 
 /**
  * Main App Component
@@ -36,21 +67,52 @@ function App() {
   const [screen, setScreen] = useState("home"); // Current active screen
   const [filesSection, setFilesSection] = useState("academic"); // Active section in files screen
   const [isTyping, setIsTyping] = useState(false); // Bot typing indicator
+  const [voiceConversation, setVoiceConversation] = useState(() => {
+    const savedVoiceConversation = localStorage.getItem('gsu-voice-conversation');
+    if (savedVoiceConversation) {
+      try {
+        return JSON.parse(savedVoiceConversation);
+      } catch (error) {
+        console.error('Error loading saved voice conversation:', error);
+      }
+    }
+    return [];
+  }); // Voice conversation history
   
   // Initial chat messages with welcome content
-  const [messages, setMessages] = useState([
-    { 
-      id: "1", 
-      role: "bot", 
-      text: "Hi! I'm Pounce Assistant, your digital guide to advising, course planning, deadlines, and campus life at Georgia State University. How can I help you today?" 
-    },
-    { 
-      id: "2", 
-      role: "bot", 
-      text: "Here's what I can help you with:\n\n🎓 **Academic Advising** - Get personalized course recommendations and degree planning assistance\n📅 **Schedule Planning** - Build optimal class schedules that fit your preferences and requirements\n🎤 **Voice Assistant** - Speak naturally with me using advanced speech recognition\n\nWhat would you like to explore first?",
-      showQuickActions: true
-    },
-  ]);
+  const [messages, setMessages] = useState(() => {
+    const savedMessages = localStorage.getItem('gsu-chat-messages');
+    if (savedMessages) {
+      try {
+        return JSON.parse(savedMessages);
+      } catch (error) {
+        console.error('Error loading saved messages:', error);
+      }
+    }
+    return [
+      { 
+        id: "1", 
+        role: "bot", 
+        text: "Hi! I'm Pounce Assistant, your digital guide to advising, course planning, deadlines, and campus life at Georgia State University. How can I help you today?" 
+      },
+      { 
+        id: "2", 
+        role: "bot", 
+        text: "Here's what I can help you with:\n\n🎓 **Academic Advising** - Get personalized course recommendations and degree planning assistance\n📅 **Schedule Planning** - Build optimal class schedules that fit your preferences and requirements\n🎤 **Voice Assistant** - Speak naturally with me using advanced speech recognition\n\nWhat would you like to explore first?",
+        showQuickActions: true
+      },
+    ];
+  });
+
+  // Save messages to localStorage whenever messages state changes
+  useEffect(() => {
+    localStorage.setItem('gsu-chat-messages', JSON.stringify(messages));
+  }, [messages]);
+
+  // Save voice conversation to localStorage whenever voiceConversation state changes
+  useEffect(() => {
+    localStorage.setItem('gsu-voice-conversation', JSON.stringify(voiceConversation));
+  }, [voiceConversation]);
 
   /**
    * Handles sending messages to the chat
@@ -62,10 +124,11 @@ function App() {
   const handleSendMessage = async (message) => {
     setMessages(prev => [...prev, message]);
     setIsTyping(true); // Show typing indicator
+    let fallbackResponse = '';
     
     try {
       // Call the backend API
-      const response = await fetch('http://localhost:5001/api/chat/message', {
+  const response = await fetch('/api/chat/message', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -82,22 +145,28 @@ function App() {
 
       const data = await response.json();
       
+      let assistantText = '';
       if (data.success) {
+        assistantText = data.response;
         setMessages(prev => [...prev, {
           id: Math.random().toString(36).slice(2),
           role: "bot",
-          text: data.response,
+          text: assistantText,
           hasContext: data.hasContext || false,
           context: data.context || null
         }]);
       } else {
         // Fallback to hardcoded response if API fails
+        assistantText = data.response || "I apologize, but I'm having trouble connecting right now. Please try again in a moment.";
         setMessages(prev => [...prev, {
           id: Math.random().toString(36).slice(2),
           role: "bot",
-          text: data.response || "I apologize, but I'm having trouble connecting right now. Please try again in a moment."
+          text: assistantText
         }]);
       }
+      // Return assistant text so callers (e.g., ScreenVoice) can use it for TTS
+      setIsTyping(false);
+      return assistantText;
     } catch (error) {
       console.error('Error calling chat API:', error);
       
@@ -131,6 +200,7 @@ function App() {
     }
     
     setIsTyping(false); // Hide typing indicator
+    return fallbackResponse;
   };
 
   /**
@@ -222,7 +292,12 @@ function App() {
               onSendMessage={handleSendMessage}
             />
           )}
-          {screen === "voice" && <ScreenVoice onBackToChat={() => go("chat")} />}
+          {screen === "voice" && <ScreenVoice 
+            onBackToChat={() => go("chat")} 
+            onSendMessage={handleSendMessage}
+            voiceConversation={voiceConversation}
+            setVoiceConversation={setVoiceConversation}
+          />}
           {screen === "files" && (
             <ScreenFiles 
               section={filesSection}
@@ -232,6 +307,8 @@ function App() {
           {screen === "history" && (
             <ScreenHistory 
               onBack={() => go("home")}
+              messages={messages}
+              voiceConversation={voiceConversation}
             />
           )}
         </div>
