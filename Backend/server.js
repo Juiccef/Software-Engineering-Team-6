@@ -22,6 +22,7 @@ require('dotenv').config();
 
 // Import custom modules
 const chatRoutes = require('./api_integration/chatRoutes');
+const supabase = require('./api_integration/supaBase');
 const { initializeOpenAI } = require('./api_integration/openaiClient');
 const { initializePinecone } = require('./api_integration/pineconeClient');
 
@@ -44,7 +45,7 @@ app.use(limiter);
 
 // CORS configuration - Allow frontend to communicate with backend
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: '*', // Allow all origins for now
   credentials: true
 }));
 
@@ -67,8 +68,8 @@ app.use('/api/chat', chatRoutes);
 
 // Health check endpoint - Monitor server status
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'OK', 
+  res.json({
+    status: 'OK',
     message: 'GSU Chatbot Backend is running',
     timestamp: new Date().toISOString()
   });
@@ -78,9 +79,9 @@ app.get('/api/health', (req, res) => {
 app.get('/api/test-openai', async (req, res) => {
   try {
     const { sendToChatGPT } = require('./api_integration/openaiClient');
-    
+
     const result = await sendToChatGPT('Hello! This is a connection test.', []);
-    
+
     if (result.success) {
       res.json({
         status: 'success',
@@ -105,12 +106,14 @@ app.get('/api/test-openai', async (req, res) => {
   }
 });
 
+
+
 // ==================== ERROR HANDLING ====================
 
 // Global error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err);
-  res.status(500).json({ 
+  res.status(500).json({
     error: 'Internal server error',
     message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
   });

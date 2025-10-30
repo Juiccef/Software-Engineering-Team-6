@@ -6,6 +6,7 @@ import ScreenChat from './screens/ScreenChat';
 import ScreenVoice from './screens/ScreenVoice';
 import ScreenFiles from './screens/ScreenFiles';
 import ScreenHistory from './screens/ScreenHistory';
+import chatHistoryService from './services/chatHistoryService';
 
 /**
  * GSU Panther Chatbot - Main Application Component
@@ -19,195 +20,197 @@ import ScreenHistory from './screens/ScreenHistory';
  * @author GSU Software Engineering Team 6
  * @version 1.0.0
  */
-
-/**
-  const [messages, setMessages] = useState([
-    { 
-      id: "1", 
-      role: "bot", 
-      text: "Hi! I'm Pounce Assistant, your digital guide to advising, course planning, deadlines, and campus life at Georgia State University. How can I help you today?" 
-    },
-    { 
-      id: "2", 
-      role: "bot", 
-      text: "Here's what I can help you with:\n\n🎓 **Academic Advising** - Get personalized course recommendations and degree planning assistance\n📅 **Schedule Planning** - Build optimal class schedules that fit your preferences and requirements\n🎤 **Voice Assistant** - Speak naturally with me using advanced speech recognition\n\nWhat would you like to explore first?",
-      quickActions: [
-        { id: "academic", label: "Academic Help", emoji: "🎓" },
-        { id: "schedule", label: "Plan Schedule", emoji: "📅" },
-        { id: "voice", label: "Voice Chat", emoji: "🎤" }
-      ]
-    }
-  ]);
-
-  /**
- * 
- * This is the root component that manages:
- * - Global application state (theme, current screen, messages)
- * - Navigation between different screens
- * - Message handling and bot responses
- * - Quick action processing
- * 
- * @author GSU Software Engineering Team 6
- * @version 1.0.0
- */
-
-/**
- * Main App Component
- * 
- * Manages the overall application state and routing between screens.
- * Handles theme switching, message processing, and navigation.
- * 
- * @returns {JSX.Element} The main application component
- */
 function App() {
-  // Theme management hook
   const { mode, setMode, vars } = useTheme();
-  
+
   // Application state
-  const [screen, setScreen] = useState("home"); // Current active screen
-  const [filesSection, setFilesSection] = useState("academic"); // Active section in files screen
-  const [isTyping, setIsTyping] = useState(false); // Bot typing indicator
+  const [screen, setScreen] = useState("home");
+  const [filesSection, setFilesSection] = useState("academic");
+  const [isTyping, setIsTyping] = useState(false);
+  const [currentSessionId, setCurrentSessionId] = useState(null);
+  const [chatHistory, setChatHistory] = useState([]);
+
+  // Voice conversation history
   const [voiceConversation, setVoiceConversation] = useState(() => {
-    const savedVoiceConversation = localStorage.getItem('gsu-voice-conversation');
-    if (savedVoiceConversation) {
+    const saved = localStorage.getItem('gsu-voice-conversation');
+    if (saved) {
       try {
-        return JSON.parse(savedVoiceConversation);
+        return JSON.parse(saved);
       } catch (error) {
         console.error('Error loading saved voice conversation:', error);
       }
     }
     return [];
-  }); // Voice conversation history
-  
-  // Initial chat messages with welcome content
+  });
+
+  // Chat messages
   const [messages, setMessages] = useState(() => {
-    const savedMessages = localStorage.getItem('gsu-chat-messages');
-    if (savedMessages) {
+    const saved = localStorage.getItem('gsu-chat-messages');
+    if (saved) {
       try {
-        return JSON.parse(savedMessages);
+        return JSON.parse(saved);
       } catch (error) {
         console.error('Error loading saved messages:', error);
       }
     }
     return [
-      { 
-        id: "1", 
-        role: "bot", 
-        text: "Hi! I'm Pounce Assistant, your digital guide to advising, course planning, deadlines, and campus life at Georgia State University. How can I help you today?" 
+      {
+        id: "1",
+        role: "bot",
+        text:
+          "Hi! I'm Pounce Assistant, your digital guide to advising, course planning, deadlines, and campus life at Georgia State University. How can I help you today?"
       },
-      { 
-        id: "2", 
-        role: "bot", 
-        text: "Here's what I can help you with:\n\n🎓 **Academic Advising** - Get personalized course recommendations and degree planning assistance\n📅 **Schedule Planning** - Build optimal class schedules that fit your preferences and requirements\n🎤 **Voice Assistant** - Speak naturally with me using advanced speech recognition\n\nWhat would you like to explore first?",
+      {
+        id: "2",
+        role: "bot",
+        text:
+          "Here's what I can help you with:\n\n🎓 **Academic Advising** - Get personalized course recommendations and degree planning assistance\n📅 **Schedule Planning** - Build optimal class schedules that fit your preferences and requirements\n🎤 **Voice Assistant** - Speak naturally with me using advanced speech recognition\n\nWhat would you like to explore first?",
         showQuickActions: true
       },
     ];
   });
 
-  // Save messages to localStorage whenever messages state changes
+  // Persist chat + voice
   useEffect(() => {
     localStorage.setItem('gsu-chat-messages', JSON.stringify(messages));
   }, [messages]);
 
-  // Save voice conversation to localStorage whenever voiceConversation state changes
   useEffect(() => {
     localStorage.setItem('gsu-voice-conversation', JSON.stringify(voiceConversation));
   }, [voiceConversation]);
 
-  /**
-   * Handles sending messages to the chat
-   * 
-   * @param {Object} message - The message object containing role and text
-   * @param {string} message.role - Either "user" or "bot"
-   * @param {string} message.text - The message content
-   */
-  const handleSendMessage = async (message) => {
-    setMessages(prev => [...prev, message]);
-    setIsTyping(true); // Show typing indicator
-    let fallbackResponse = '';
-    
+  // Load chat history on mount
+  useEffect(() => {
+    loadChatHistory();
+  }, []);
+
+  useEffect(() => {
+    if (screen === "chat" && !currentSessionId) {
+      setCurrentSessionId(chatHistoryService.generateId());
+    }
+  }, [screen, currentSessionId]);
+
+  const startNewChat = () => {
+    setCurrentSessionId(chatHistoryService.generateId());
+    setMessages([
+      {
+        id: "1",
+        role: "bot",
+        text:
+          "Hi! I'm Pounce Assistant, your digital guide to advising, course planning, deadlines, and campus life at Georgia State University. How can I help you today?"
+      },
+      {
+        id: "2",
+        role: "bot",
+        text:
+          "Here's what I can help you with:\n\n🎓 **Academic Advising** - Get personalized course recommendations and degree planning assistance\n📅 **Schedule Planning** - Build optimal class schedules that fit your preferences and requirements\n🎤 **Voice Assistant** - Speak naturally with me using advanced speech recognition\n\nWhat would you like to explore first?",
+        showQuickActions: true
+      },
+    ]);
+    setScreen("chat");
+  };
+
+  const loadChatHistory = async () => {
     try {
-      // Call the backend API
-  const response = await fetch('/api/chat/message', {
+      const history = await chatHistoryService.getHistory();
+      setChatHistory(history);
+    } catch (error) {
+      console.error('Failed to load chat history:', error);
+    }
+  };
+
+  const saveChatSession = async (sessionData) => {
+    try {
+      const { id, title, messages, type } = sessionData;
+      const result = await chatHistoryService.saveSession({
+        id,
+        title: title || chatHistoryService.generateTitle(messages),
+        messages,
+        type: type || 'chat'
+      });
+      console.log('✅ Chat session saved:', result);
+      return result;
+    } catch (error) {
+      console.error('❌ Failed to save chat session:', error);
+      return null;
+    }
+  };
+
+  const loadChatSession = async (chat) => {
+    try {
+      setCurrentSessionId(chat.id);
+      setMessages(chat.messages || []);
+      setScreen("chat");
+    } catch (error) {
+      console.error('Failed to load chat session:', error);
+    }
+  };
+
+  const handleSendMessage = async (message) => {
+    const updated = [...messages, message];
+    setMessages(updated);
+    setIsTyping(true);
+    let fallbackResponse = '';
+
+    try {
+      const response = await fetch('/api/chat/message', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: message.text,
-          conversationHistory: messages.slice(-10) // Send last 10 messages for context
+          conversationHistory: messages.slice(-10)
         })
       });
 
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+      const data = await response.json();
+
+      let assistantText = data.response ||
+        "I apologize, but I'm having trouble connecting right now. Please try again in a moment.";
+
+      const botResponse = {
+        id: Math.random().toString(36).slice(2),
+        role: "bot",
+        text: assistantText,
+        hasContext: data.hasContext || false,
+        context: data.context || null
+      };
+
+      const finalMessages = [...updated, botResponse];
+      setMessages(finalMessages);
+
+      if (currentSessionId) {
+        await saveChatSession({
+          id: currentSessionId,
+          messages: finalMessages,
+          type: 'chat'
+        });
       }
 
-      const data = await response.json();
-      
-      let assistantText = '';
-      if (data.success) {
-        assistantText = data.response;
-        setMessages(prev => [...prev, {
-          id: Math.random().toString(36).slice(2),
-          role: "bot",
-          text: assistantText,
-          hasContext: data.hasContext || false,
-          context: data.context || null
-        }]);
-      } else {
-        // Fallback to hardcoded response if API fails
-        assistantText = data.response || "I apologize, but I'm having trouble connecting right now. Please try again in a moment.";
-        setMessages(prev => [...prev, {
-          id: Math.random().toString(36).slice(2),
-          role: "bot",
-          text: assistantText
-        }]);
-      }
-      // Return assistant text so callers (e.g., ScreenVoice) can use it for TTS
       setIsTyping(false);
       return assistantText;
     } catch (error) {
       console.error('Error calling chat API:', error);
-      
-      // Fallback to hardcoded responses for common queries
-      const userText = message.text?.toLowerCase() || '';
-      let fallbackResponse = "";
-      
-      if (userText.includes('plan') && userText.includes('semester')) {
-        fallbackResponse = "Perfect! I'm excellent at semester planning. I can help you build optimal class schedules that fit your preferences, avoid conflicts, and meet your degree requirements. What type of schedule are you looking for - morning classes, afternoon, or flexible timing?";
-      } else if (userText.includes('campus') && userText.includes('resource')) {
-        fallbackResponse = "I can connect you with various campus resources! I can help you find tutoring services, academic support, career counseling, financial aid information, and campus events. What specific type of support are you looking for?";
-      } else if (userText.includes('transcript') || userText.includes('upload')) {
-        fallbackResponse = "Great! I can help you analyze your transcripts. You can upload your academic documents using the 📷 button in the chat. Once uploaded, I'll help you understand your progress and suggest next steps for your degree.";
-      } else if (userText.includes('degree') || userText.includes('audit')) {
-        fallbackResponse = "I can help you with degree planning and audits! I can analyze your current progress, identify remaining requirements, and suggest courses to complete your degree efficiently. Would you like me to help you plan your next semester?";
-      } else if (userText.includes('schedule') || userText.includes('planning')) {
-        fallbackResponse = "Perfect! I'm excellent at schedule planning. I can help you build optimal class schedules that fit your preferences, avoid conflicts, and meet your degree requirements. What type of schedule are you looking for - morning classes, afternoon, or flexible timing?";
-      } else if (userText.includes('voice') || userText.includes('speak')) {
-        fallbackResponse = "I'd love to chat with you using voice! Click the voice button above or use the 🎤 Start Voice Chat button to begin a voice conversation. I can understand natural speech and respond conversationally.";
-      } else if (userText.includes('event') || userText.includes('campus')) {
-        fallbackResponse = "I can help you discover campus events and activities! I can show you upcoming academic events, social activities, career fairs, and student organization meetings. Are you looking for academic, social, or career-related events?";
-      } else {
-        fallbackResponse = "Thanks for your message! I'm here to help with all aspects of your GSU experience. You can ask me about:\n\n• Academic planning and course selection\n• Schedule building and optimization\n• Degree requirements and audits\n• Campus resources and support\n• Events and activities\n• Voice conversations\n\nWhat would you like to explore?";
-      }
-      
-      setMessages(prev => [...prev, {
+      const botResponse = {
         id: Math.random().toString(36).slice(2),
         role: "bot",
-        text: fallbackResponse
-      }]);
+        text: `I apologize, but I'm experiencing technical difficulties. Error: ${error.message}.`
+      };
+      const finalMessages = [...updated, botResponse];
+      setMessages(finalMessages);
+      if (currentSessionId) {
+        await saveChatSession({
+          id: currentSessionId,
+          messages: finalMessages,
+          type: 'chat'
+        });
+      }
     }
-    
-    setIsTyping(false); // Hide typing indicator
+
+    setIsTyping(false);
     return fallbackResponse;
   };
 
-  /**
-   * Handles quick action button clicks
-   * 
-   * @param {string} actionId - The ID of the quick action clicked
-   */
   const handleQuickAction = (actionId) => {
     const actionMessages = {
       transcript: "I'd like to upload my transcripts for analysis",
@@ -217,41 +220,26 @@ function App() {
       events: "Show me upcoming campus events",
       voice: "I want to use voice chat"
     };
-
     const message = actionMessages[actionId];
-    if (message) {
-      handleSendMessage({ role: "user", text: message });
-    }
+    if (message) handleSendMessage({ role: "user", text: message });
   };
 
-  /**
-   * Simple navigation helper to change screens
-   * 
-   * @param {string} screenName - The name of the screen to navigate to
-   */
-  const go = (screenName) => {
-    setScreen(screenName);
-  };
+  const go = (screenName) => setScreen(screenName);
 
-  /**
-   * Navigate to files page with a specific section active
-   * 
-   * @param {string} section - The section to show in files screen
-   */
   const goToFiles = (section) => {
     setFilesSection(section);
     setScreen("files");
   };
 
   return (
-    <div style={{ 
-      ...vars, 
-      height: "100vh", 
-      background: "var(--bg)", 
-      color: "var(--fg)", 
-      transition: "background 180ms ease, color 180ms ease" 
+    <div style={{
+      ...vars,
+      height: "100vh",
+      background: "var(--bg)",
+      color: "var(--fg)",
+      transition: "background 180ms ease, color 180ms ease"
     }}>
-      <Layout 
+      <Layout
         messages={messages}
         onSendMessage={handleSendMessage}
         onQuickAction={handleQuickAction}
@@ -260,15 +248,13 @@ function App() {
         isTyping={isTyping}
         onToggleTheme={() => setMode(mode === "dark" ? "light" : "dark")}
         onLogoClick={() => go('home')}
+        onNewChat={startNewChat}
         onNavigate={(route) => {
-          if (route === "files") {
-            goToFiles("academic");
-          } else {
-            go(route);
-          }
+          if (route === "files") goToFiles("academic");
+          else go(route);
         }}
       >
-        <div style={{ 
+        <div style={{
           width: "100%",
           height: "100%",
           display: "flex",
@@ -277,8 +263,8 @@ function App() {
           padding: "0 20px"
         }}>
           {screen === "home" && (
-            <ScreenHome 
-              onStart={() => go("chat")} 
+            <ScreenHome
+              onStart={() => go("chat")}
               onGoChat={() => go("chat")}
               onGoToFiles={goToFiles}
               onGoToHistory={() => go("history")}
@@ -286,27 +272,27 @@ function App() {
             />
           )}
           {screen === "chat" && (
-            <ScreenChat 
+            <ScreenChat
               onOpenVoice={() => go("voice")}
               onGoToFiles={goToFiles}
               onSendMessage={handleSendMessage}
             />
           )}
-          {screen === "voice" && <ScreenVoice 
-            onBackToChat={() => go("chat")} 
-            onSendMessage={handleSendMessage}
-            voiceConversation={voiceConversation}
-            setVoiceConversation={setVoiceConversation}
-          />}
-          {screen === "files" && (
-            <ScreenFiles 
-              section={filesSection}
-              onBack={() => go("home")}
+          {screen === "voice" && (
+            <ScreenVoice
+              onBackToChat={() => go("chat")}
+              onSendMessage={handleSendMessage}
+              voiceConversation={voiceConversation}
+              setVoiceConversation={setVoiceConversation}
             />
           )}
+          {screen === "files" && (
+            <ScreenFiles section={filesSection} onBack={() => go("home")} />
+          )}
           {screen === "history" && (
-            <ScreenHistory 
+            <ScreenHistory
               onBack={() => go("home")}
+              onLoadChat={loadChatSession}
               messages={messages}
               voiceConversation={voiceConversation}
             />
@@ -318,3 +304,4 @@ function App() {
 }
 
 export default App;
+

@@ -1,63 +1,103 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { GSU } from '../constants/colors';
+import chatHistoryService from '../services/chatHistoryService';
 
-function ScreenHistory({ onBack, messages, voiceConversation }) {
+function ScreenHistory({ onBack, onLoadChat, messages, voiceConversation }) {
+  const [chatHistory, setChatHistory] = useState([]);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filteredHistory, setFilteredHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [selectedConversation, setSelectedConversation] = useState(null);
-  
-  // Combine regular chat messages and voice conversations into unified history
-  const getCombinedHistory = () => {
-    const history = [];
-    
-    // Add regular chat conversations (group by conversation/session)
-    if (messages && messages.length > 0) {
-      // For now, treat all messages as one conversation
-      // In a real app, you'd group by conversation sessions
-      const chatMessages = messages.filter(msg => msg.role === 'user');
-      if (chatMessages.length > 0) {
-        history.push({
-          id: 'chat-' + Date.now(),
-          title: chatMessages[0]?.text?.substring(0, 50) + '...' || 'Chat Conversation',
-          preview: chatMessages[0]?.text || 'Regular chat conversation',
-          timestamp: new Date().toISOString(),
-          messageCount: messages.length,
-          type: 'chat',
-          data: messages
-        });
-      }
+
+  // Load chat history on component mount
+  useEffect(() => {
+    loadChatHistory();
+  }, []);
+
+  // Filter chat history based on search query
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setFilteredHistory(chatHistory);
+    } else {
+      const filtered = chatHistory.filter(chat => 
+        chat.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (chat.messages && chat.messages.some(msg => 
+          msg.text.toLowerCase().includes(searchQuery.toLowerCase())
+        ))
+      );
+      setFilteredHistory(filtered);
     }
-    
-    // Add voice conversations
+  }, [searchQuery, chatHistory]);
+
+  // Combine chat + voice conversation into unified list
+  useEffect(() => {
+    const combined = [...chatHistory];
+
     if (voiceConversation && voiceConversation.length > 0) {
-      // Group voice messages by conversation (you could improve this logic)
       const userMessages = voiceConversation.filter(msg => msg.role === 'user');
       if (userMessages.length > 0) {
-        history.push({
+        combined.unshift({
           id: 'voice-' + Date.now(),
           title: userMessages[0]?.text?.substring(0, 50) + '...' || 'Voice Conversation',
           preview: userMessages[0]?.text || 'Voice conversation with Pounce',
           timestamp: new Date().toISOString(),
-          messageCount: voiceConversation.length,
+          message_count: voiceConversation.length,
           type: 'voice',
-          data: voiceConversation
+          messages: voiceConversation
         });
       }
     }
-    
-    // Sort by timestamp (newest first)
-    return history.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    setFilteredHistory(combined);
+  }, [voiceConversation, chatHistory]);
+
+  const loadChatHistory = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const history = await chatHistoryService.getHistory();
+      setChatHistory(history);
+      setFilteredHistory(history);
+    } catch (error) {
+      console.error('Failed to load chat history:', error);
+      setError('Failed to load chat history. Please try again.');
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const [chatHistory] = useState(getCombinedHistory());
+  const handleSearch = (e) => setSearchQuery(e.target.value);
 
-  const handleConversationClick = (conversation) => {
-    setSelectedConversation(conversation);
+  const handleChatClick = (chat) => {
+    if (chat.type === 'voice') {
+      setSelectedConversation(chat);
+    } else if (onLoadChat) {
+      onLoadChat(chat);
+    }
+  };
+
+  const handleDeleteChat = async (chatId) => {
+    if (window.confirm('Are you sure you want to delete this chat?')) {
+      try {
+        await chatHistoryService.deleteSession(chatId);
+        await loadChatHistory();
+      } catch (error) {
+        console.error('Failed to delete chat:', error);
+        alert('Failed to delete chat. Please try again.');
+      }
+    }
   };
 
   const handleBackToList = () => {
     setSelectedConversation(null);
   };
 
-  // If a conversation is selected, show the detailed view
+  const getTypeIcon = (type) => (type === 'voice' ? '🎤' : '💬');
+  const getTypeColor = (type) => (type === 'voice' ? '#17cf6e' : GSU.blue);
+  const formatTimestamp = (timestamp) => chatHistoryService.formatTimestamp(timestamp);
+
+  // If a conversation is selected (voice)
   if (selectedConversation) {
     return (
       <div style={{ 
@@ -67,7 +107,6 @@ function ScreenHistory({ onBack, messages, voiceConversation }) {
         width: "100%",
         padding: "0 16px"
       }}>
-        {/* Header for conversation detail */}
         <div style={{ 
           padding: "20px 0 16px 0",
           borderBottom: "1px solid var(--line)",
@@ -106,12 +145,11 @@ function ScreenHistory({ onBack, messages, voiceConversation }) {
               opacity: 0.7, 
               fontSize: "0.85rem" 
             }}>
-              {selectedConversation.messageCount} messages • {formatTimestamp(selectedConversation.timestamp)}
+              {selectedConversation.message_count} messages • {formatTimestamp(selectedConversation.timestamp)}
             </p>
           </div>
         </div>
 
-        {/* Conversation transcript */}
         <div style={{ 
           flex: 1, 
           overflow: "auto",
@@ -120,7 +158,7 @@ function ScreenHistory({ onBack, messages, voiceConversation }) {
           flexDirection: "column",
           gap: 16
         }}>
-          {selectedConversation.data.map((message, index) => (
+          {selectedConversation.messages.map((message, index) => (
             <div
               key={index}
               style={{
@@ -179,205 +217,248 @@ function ScreenHistory({ onBack, messages, voiceConversation }) {
     );
   }
 
-  const getTypeIcon = (type) => {
-    return type === 'voice' ? '🎤' : '💬';
-  };
-
-  const getTypeColor = (type) => {
-    return type === 'voice' ? '#17cf6e' : GSU.blue;
-  };
-
-  const formatTimestamp = (timestamp) => {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diffTime = Math.abs(now - date);
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
-    if (diffDays === 1) return 'Today';
-    if (diffDays === 2) return 'Yesterday';
-    if (diffDays <= 7) return `${diffDays - 1} days ago`;
-    return date.toLocaleDateString();
-  };
-
+  // Otherwise, render full history view
   return (
     <div style={{ 
+      width: "100%", 
+      height: "100%", 
       display: "flex", 
-      flexDirection: "column", 
-      height: "100%",
-      width: "100%",
-      padding: "0 16px"
+      flexDirection: "column",
+      gap: 24
     }}>
       {/* Header */}
       <div style={{ 
-        padding: "20px 0 16px 0",
+        display: "flex", 
+        alignItems: "center", 
+        justifyContent: "space-between",
+        paddingBottom: 16,
         borderBottom: "1px solid var(--line)"
       }}>
-        <h1 style={{ 
-          margin: "0 0 8px 0", 
-          fontSize: "1.8rem", 
-          fontWeight: "bold", 
-          color: "var(--fg)" 
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <button 
+            onClick={onBack}
+            style={{ 
+              background: "none", 
+              border: "none", 
+              fontSize: 24, 
+              cursor: "pointer",
+              color: "var(--fg)"
+            }}
+          >
+            ←
+          </button>
+          <h1 style={{ 
+            margin: 0, 
+            fontSize: 28, 
+            fontWeight: 600,
+            color: "var(--fg)"
+          }}>
+            Chat History
+          </h1>
+        </div>
+        <div style={{ 
+          fontSize: 14, 
+          color: "var(--muted)",
+          background: "var(--card)",
+          padding: "8px 12px",
+          borderRadius: 8,
+          border: "1px solid var(--line)"
         }}>
-          Chat History
-        </h1>
-        <p style={{ 
-          margin: 0, 
-          opacity: 0.7, 
-          fontSize: "0.95rem" 
-        }}>
-          View and manage your previous conversations
-        </p>
+          {chatHistory.length} {chatHistory.length === 1 ? 'chat' : 'chats'}
+        </div>
       </div>
 
       {/* Search Bar */}
-      <div style={{ 
-        marginTop: 20,
-        marginBottom: 16
-      }}>
+      <div style={{ position: "relative" }}>
         <input
           type="text"
           placeholder="Search chat history..."
+          value={searchQuery}
+          onChange={handleSearch}
           style={{
             width: "100%",
-            background: "var(--card)",
-            color: "var(--fg)",
-            border: "1px solid var(--line)",
             padding: "12px 16px",
+            paddingLeft: 40,
+            background: "var(--card)",
+            border: "1px solid var(--line)",
             borderRadius: 12,
-            fontSize: 14,
-            outline: "none"
+            fontSize: 16,
+            color: "var(--fg)",
+            outline: "none",
+            transition: "border-color 0.2s ease"
           }}
         />
+        <div style={{
+          position: "absolute",
+          left: 12,
+          top: "50%",
+          transform: "translateY(-50%)",
+          color: "var(--muted)",
+          fontSize: 16
+        }}>
+          🔍
+        </div>
       </div>
 
-      {/* Chat History List */}
-      <div style={{ 
-        flex: 1, 
-        overflow: "auto",
-        display: "flex",
-        flexDirection: "column",
-        gap: 12
-      }}>
-        {chatHistory.map((chat) => (
-          <div
-            key={chat.id}
-            onClick={() => handleConversationClick(chat)}
-            style={{ 
-              background: "var(--card)",
-              borderRadius: 12,
-              padding: 16,
-              border: "1px solid var(--line)",
-              cursor: "pointer",
-              transition: "all 0.2s ease"
-            }}
-            onMouseEnter={(e) => {
-              e.target.style.background = "var(--hover)";
-              e.target.style.transform = "translateY(-1px)";
-              e.target.style.boxShadow = "0 4px 12px rgba(0,0,0,0.1)";
-            }}
-            onMouseLeave={(e) => {
-              e.target.style.background = "var(--card)";
-              e.target.style.transform = "translateY(0)";
-              e.target.style.boxShadow = "none";
-            }}
-          >
-            <div style={{ 
-              display: "flex", 
-              alignItems: "flex-start", 
-              gap: 12 
-            }}>
-              <div style={{ 
-                width: 40,
-                height: 40,
-                background: `${getTypeColor(chat.type)}20`,
-                borderRadius: "50%",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: "1.2rem",
-                flexShrink: 0
-              }}>
-                {getTypeIcon(chat.type)}
-              </div>
-              
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ 
-                  display: "flex", 
-                  justifyContent: "space-between", 
-                  alignItems: "flex-start",
-                  marginBottom: 4
-                }}>
-                  <h3 style={{ 
-                    margin: 0, 
-                    fontSize: "0.95rem", 
-                    fontWeight: 600,
-                    color: "var(--fg)",
-                    lineHeight: 1.3
-                  }}>
-                    {chat.title}
-                  </h3>
-                  <div style={{ 
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    flexShrink: 0,
-                    marginLeft: 8
-                  }}>
-                    <span style={{ 
-                      fontSize: "0.75rem", 
-                      opacity: 0.6,
-                      background: "var(--line)",
-                      padding: "2px 6px",
-                      borderRadius: 8
-                    }}>
-                      {chat.messageCount} msgs
-                    </span>
-                    <span style={{ 
-                      fontSize: "0.75rem", 
-                      opacity: 0.6 
-                    }}>
-                      {formatTimestamp(chat.timestamp)}
-                    </span>
-                  </div>
-                </div>
-                
-                <p style={{ 
-                  margin: 0, 
-                  fontSize: "0.85rem", 
-                  opacity: 0.7, 
-                  lineHeight: 1.4,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical"
-                }}>
-                  {chat.preview}
-                </p>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Empty State */}
-      {chatHistory.length === 0 && (
+      {/* States */}
+      {loading && (
         <div style={{ 
-          flex: 1,
           display: "flex", 
           alignItems: "center", 
           justifyContent: "center",
-          color: "var(--fg)",
-          opacity: 0.6,
-          textAlign: "center"
+          padding: 40,
+          color: "var(--muted)"
         }}>
-          <div>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>💬</div>
-            <p style={{ margin: 0 }}>No chat history yet</p>
-            <p style={{ margin: "8px 0 0 0", fontSize: "0.9rem" }}>
-              Start a conversation to see it here
-            </p>
+          <div style={{ fontSize: 18 }}>Loading chat history...</div>
+        </div>
+      )}
+
+      {error && (
+        <div style={{ 
+          display: "flex", 
+          alignItems: "center", 
+          justifyContent: "center",
+          padding: 40,
+          color: "#ff6b6b",
+          flexDirection: "column",
+          gap: 16
+        }}>
+          <div style={{ fontSize: 18 }}>⚠️ {error}</div>
+          <button 
+            onClick={loadChatHistory}
+            style={{
+              background: GSU.blue,
+              color: "white",
+              border: "none",
+              padding: "8px 16px",
+              borderRadius: 8
+            }}
+          >
+            Try Again
+          </button>
+        </div>
+      )}
+
+      {!loading && !error && filteredHistory.length === 0 && (
+        <div style={{ 
+          display: "flex", 
+          alignItems: "center", 
+          justifyContent: "center",
+          padding: 40,
+          color: "var(--muted)",
+          flexDirection: "column",
+          gap: 16
+        }}>
+          <div style={{ fontSize: 48 }}>💬</div>
+          <div style={{ fontSize: 18, fontWeight: 500 }}>
+            {searchQuery ? 'No matching chats found' : 'No chat history yet'}
           </div>
+          <div style={{ fontSize: 14, textAlign: "center" }}>
+            {searchQuery ? 'Try a different search term' : 'Start a conversation to see it here'}
+          </div>
+        </div>
+      )}
+
+      {!loading && !error && filteredHistory.length > 0 && (
+        <div style={{ 
+          display: "flex", 
+          flexDirection: "column", 
+          gap: 12,
+          maxHeight: "calc(100vh - 200px)",
+          overflowY: "auto"
+        }}>
+          {filteredHistory.map((chat) => (
+            <div
+              key={chat.id}
+              onClick={() => handleChatClick(chat)}
+              style={{
+                background: "var(--card)",
+                border: "1px solid var(--line)",
+                borderRadius: 12,
+                padding: 16,
+                cursor: "pointer",
+                transition: "all 0.2s ease",
+                position: "relative"
+              }}
+            >
+              <div style={{ 
+                display: "flex", 
+                alignItems: "center", 
+                justifyContent: "space-between",
+                marginBottom: 8
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ 
+                    fontSize: 16,
+                    color: getTypeColor(chat.type || 'chat')
+                  }}>
+                    {getTypeIcon(chat.type || 'chat')}
+                  </div>
+                  <h3 style={{ 
+                    margin: 0, 
+                    fontSize: 16, 
+                    fontWeight: 500,
+                    color: "var(--fg)"
+                  }}>
+                    {chat.title}
+                  </h3>
+                </div>
+                <div style={{ 
+                  fontSize: 12, 
+                  color: "var(--muted)",
+                  background: "var(--bg)",
+                  padding: "4px 8px",
+                  borderRadius: 6,
+                  border: "1px solid var(--line)"
+                }}>
+                  {chat.message_count || 0} messages
+                </div>
+              </div>
+
+              {chat.messages && chat.messages.length > 0 && (
+                <div style={{ 
+                  fontSize: 14, 
+                  color: "var(--muted)",
+                  marginBottom: 8,
+                  lineHeight: 1.4,
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden"
+                }}>
+                  {chat.messages[chat.messages.length - 1]?.text || 'No messages'}
+                </div>
+              )}
+
+              <div style={{ 
+                display: "flex", 
+                alignItems: "center", 
+                justifyContent: "space-between"
+              }}>
+                <div style={{ fontSize: 12, color: "var(--muted)" }}>
+                  {formatTimestamp(chat.created_at)}
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleDeleteChat(chat.id);
+                  }}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: "var(--muted)",
+                    cursor: "pointer",
+                    fontSize: 16,
+                    padding: 4,
+                    borderRadius: 4
+                  }}
+                  title="Delete chat"
+                >
+                  🗑️
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
