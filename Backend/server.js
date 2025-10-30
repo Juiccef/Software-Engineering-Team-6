@@ -45,7 +45,7 @@ app.use(limiter);
 
 // CORS configuration - Allow frontend to communicate with backend
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
+  origin: '*', // Allow all origins for now
   credentials: true
 }));
 

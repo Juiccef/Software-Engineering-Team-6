@@ -1,6 +1,7 @@
 const express = require('express');
 const { sendToChatGPT, getQuickResponse } = require('./openaiClient');
 const { sendToChatGPTWithContext, isPineconeAvailable } = require('./pineconeClient');
+const supabase = require('./supaBase');
 
 const router = express.Router();
 
@@ -201,6 +202,353 @@ router.post('/quick-actions', async (req, res) => {
       success: false,
       error: 'Internal server error',
       response: 'I apologize, but I encountered an error. Please try again.'
+    });
+  }
+});
+
+/**
+ * POST /api/chat/sessions
+ * Save a chat session to Supabase
+ */
+router.post('/sessions', async (req, res) => {
+  try {
+    const { title, messages = [] } = req.body;
+
+    if (!title || !messages || !Array.isArray(messages)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Title and messages array are required'
+      });
+    }
+
+    if (!supabase) {
+      return res.status(500).json({
+        success: false,
+        error: 'Supabase not configured'
+      });
+    }
+
+    // Create the chat session first
+    const { data: sessionData, error: sessionError } = await supabase
+      .from('chat_sessions')
+      .insert({
+        title: title
+      })
+      .select()
+      .single();
+
+    if (sessionError) {
+      console.error('❌ Supabase session insert error:', sessionError);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to save chat session',
+        details: sessionError.message
+      });
+    }
+
+    // Insert messages if any
+    if (messages.length > 0) {
+      const messageInserts = messages.map(msg => ({
+        session_id: sessionData.id,
+        role: msg.role === 'bot' ? 'assistant' : msg.role,
+        message: msg.text
+      }));
+
+      const { error: messagesError } = await supabase
+        .from('chat_messages')
+        .insert(messageInserts);
+
+      if (messagesError) {
+        console.error('❌ Supabase messages insert error:', messagesError);
+        // Continue anyway, session was created
+      }
+    }
+
+    res.json({
+      success: true,
+      session: sessionData,
+      message: 'Chat session saved successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Save session error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/chat/sessions
+ * Get all chat sessions from Supabase
+ */
+router.get('/sessions', async (req, res) => {
+  try {
+    if (!supabase) {
+      return res.status(500).json({
+        success: false,
+        error: 'Supabase not configured'
+      });
+    }
+
+    const { data, error } = await supabase
+      .from('chat_sessions')
+      .select(`
+        *,
+        chat_messages (
+          id,
+          role,
+          message,
+          created_at
+        )
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('❌ Supabase select error:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to load chat sessions',
+        details: error.message
+      });
+    }
+
+    // Transform the data to match frontend expectations
+    const transformedSessions = data.map(session => ({
+      id: session.id,
+      title: session.title,
+      created_at: session.created_at,
+      updated_at: session.created_at, // Use created_at as updated_at for now
+      message_count: session.chat_messages ? session.chat_messages.length : 0,
+      messages: session.chat_messages ? session.chat_messages.map(msg => ({
+        id: msg.id,
+        role: msg.role === 'assistant' ? 'bot' : msg.role,
+        text: msg.message,
+        timestamp: msg.created_at
+      })) : []
+    }));
+
+    res.json({
+      success: true,
+      sessions: transformedSessions || [],
+      count: transformedSessions ? transformedSessions.length : 0
+    });
+
+  } catch (error) {
+    console.error('❌ Load sessions error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/chat/sessions/:id
+ * Get a specific chat session by ID
+ */
+router.get('/sessions/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!supabase) {
+      return res.status(500).json({
+        success: false,
+        error: 'Supabase not configured'
+      });
+    }
+
+    const { data, error } = await supabase
+      .from('chat_sessions')
+      .select(`
+        *,
+        chat_messages (
+          id,
+          role,
+          message,
+          created_at
+        )
+      `)
+      .eq('id', id)
+      .single();
+
+    if (error) {
+      console.error('❌ Supabase select error:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to load chat session',
+        details: error.message
+      });
+    }
+
+    if (!data) {
+      return res.status(404).json({
+        success: false,
+        error: 'Chat session not found'
+      });
+    }
+
+    // Transform the data to match frontend expectations
+    const transformedSession = {
+      id: data.id,
+      title: data.title,
+      created_at: data.created_at,
+      updated_at: data.created_at,
+      message_count: data.chat_messages ? data.chat_messages.length : 0,
+      messages: data.chat_messages ? data.chat_messages.map(msg => ({
+        id: msg.id,
+        role: msg.role === 'assistant' ? 'bot' : msg.role,
+        text: msg.message,
+        timestamp: msg.created_at
+      })) : []
+    };
+
+    res.json({
+      success: true,
+      session: transformedSession
+    });
+
+  } catch (error) {
+    console.error('❌ Load session error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * PUT /api/chat/sessions/:id
+ * Update a chat session
+ */
+router.put('/sessions/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, messages } = req.body;
+
+    if (!supabase) {
+      return res.status(500).json({
+        success: false,
+        error: 'Supabase not configured'
+      });
+    }
+
+    // Update session title if provided
+    if (title) {
+      const { error: sessionError } = await supabase
+        .from('chat_sessions')
+        .update({ title })
+        .eq('id', id);
+
+      if (sessionError) {
+        console.error('❌ Supabase session update error:', sessionError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to update chat session',
+          details: sessionError.message
+        });
+      }
+    }
+
+    // Update messages if provided
+    if (messages && Array.isArray(messages)) {
+      // First, delete existing messages
+      const { error: deleteError } = await supabase
+        .from('chat_messages')
+        .delete()
+        .eq('session_id', id);
+
+      if (deleteError) {
+        console.error('❌ Supabase messages delete error:', deleteError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to update messages',
+          details: deleteError.message
+        });
+      }
+
+      // Then insert new messages
+      if (messages.length > 0) {
+        const messageInserts = messages.map(msg => ({
+          session_id: id,
+          role: msg.role === 'bot' ? 'assistant' : msg.role,
+          message: msg.text
+        }));
+
+        const { error: messagesError } = await supabase
+          .from('chat_messages')
+          .insert(messageInserts);
+
+        if (messagesError) {
+          console.error('❌ Supabase messages insert error:', messagesError);
+          return res.status(500).json({
+            success: false,
+            error: 'Failed to update messages',
+            details: messagesError.message
+          });
+        }
+      }
+    }
+
+    res.json({
+      success: true,
+      message: 'Chat session updated successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Update session error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * DELETE /api/chat/sessions/:id
+ * Delete a chat session
+ */
+router.delete('/sessions/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!supabase) {
+      return res.status(500).json({
+        success: false,
+        error: 'Supabase not configured'
+      });
+    }
+
+    const { error } = await supabase
+      .from('chat_sessions')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      console.error('❌ Supabase delete error:', error);
+      return res.status(500).json({
+        success: false,
+        error: 'Failed to delete chat session',
+        details: error.message
+      });
+    }
+
+    res.json({
+      success: true,
+      message: 'Chat session deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Delete session error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      details: error.message
     });
   }
 });

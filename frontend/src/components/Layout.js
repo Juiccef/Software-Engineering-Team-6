@@ -37,7 +37,8 @@ function Layout({
   isTyping = false,
   onToggleTheme, 
   onLogoClick, 
-  onNavigate 
+  onNavigate,
+  onNewChat
 }) {
   // Component state
   const [sidebar, setSidebar] = useState(false); // Controls sidebar visibility
@@ -578,6 +579,39 @@ function Layout({
                     🎤
                   </div>
                 </div>
+                
+                {/* New Chat Button */}
+                {onNewChat && (
+                  <button 
+                    onClick={onNewChat}
+                    style={{ 
+                      background: "var(--card)",
+                      color: "var(--fg)", 
+                      border: "1px solid var(--line)", 
+                      padding: "12px", 
+                      borderRadius: "50%", 
+                      cursor: "pointer",
+                      width: 44,
+                      height: 44,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 16,
+                      transition: "all 0.2s ease"
+                    }}
+                    onMouseEnter={(e) => {
+                      e.target.style.background = "var(--hover)";
+                      e.target.style.transform = "scale(1.05)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.target.style.background = "var(--card)";
+                      e.target.style.transform = "scale(1)";
+                    }}
+                    title="Start New Chat"
+                  >
+                    ➕
+                  </button>
+                )}
                 
                 {/* Upload Button */}
                 <button 
