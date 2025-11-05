@@ -23,7 +23,7 @@ require('dotenv').config();
 // Import custom modules
 const chatRoutes = require('./api_integration/chatRoutes');
 const supabase = require('./api_integration/supaBase');
-const { initializeOpenAI } = require('./api_integration/openaiClient');
+const { initializeOpenAI, textToSpeech } = require('./api_integration/openaiClient');
 const { initializePinecone } = require('./api_integration/pineconeClient');
 
 // Initialize Express app
@@ -102,6 +102,54 @@ app.get('/api/test-openai', async (req, res) => {
       status: 'error',
       message: 'Failed to test OpenAI connection',
       error: error.message
+    });
+  }
+});
+
+// Text-to-Speech endpoint
+app.post('/api/tts', async (req, res) => {
+  try {
+    const { text, voice = 'alloy' } = req.body;
+
+    // Validate input
+    if (!text || typeof text !== 'string' || text.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Text is required and must be a non-empty string'
+      });
+    }
+
+    // Limit text length to prevent abuse (OpenAI TTS has a 4096 character limit)
+    if (text.length > 4000) {
+      return res.status(400).json({
+        success: false,
+        error: 'Text is too long. Maximum length is 4000 characters.'
+      });
+    }
+
+    // Generate speech
+    const result = await textToSpeech(text, voice);
+
+    if (result.success) {
+      // Set appropriate headers for audio response
+      res.setHeader('Content-Type', 'audio/mpeg');
+      res.setHeader('Content-Length', result.audio.length);
+      res.setHeader('Cache-Control', 'public, max-age=3600'); // Cache for 1 hour
+      
+      // Send audio buffer
+      res.send(result.audio);
+    } else {
+      res.status(500).json({
+        success: false,
+        error: result.error || 'Failed to generate speech'
+      });
+    }
+  } catch (error) {
+    console.error('❌ TTS endpoint error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Internal server error',
+      message: error.message
     });
   }
 });

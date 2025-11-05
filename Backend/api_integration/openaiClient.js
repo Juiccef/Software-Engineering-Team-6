@@ -100,18 +100,23 @@ Always maintain a helpful and professional tone while being approachable like a 
     
     // Provide more specific error messages based on error type
     let errorMessage = 'I apologize, but I\'m having trouble connecting to my AI service right now.';
+    let errorType = 'general_error';
     
-    if (error.code === 'insufficient_quota') {
-      errorMessage = 'I apologize, but my AI service quota has been exceeded. Please add billing information to your OpenAI account or try again later.';
-    } else if (error.status === 429) {
-      errorMessage = 'I apologize, but my AI service is temporarily unavailable due to rate limits. Please try again in a moment.';
-    } else if (error.code === 'invalid_api_key') {
+    // Check for quota errors (can appear as code or in error object)
+    if (error.code === 'insufficient_quota' || 
+        error.status === 429 || 
+        (error.error && error.error.code === 'insufficient_quota')) {
+      errorMessage = 'I apologize, but the OpenAI API quota has been exceeded. Please check your billing and usage limits at https://platform.openai.com/usage. You may need to add credits to your account or upgrade your plan.';
+      errorType = 'quota_exceeded';
+    } else if (error.code === 'invalid_api_key' || error.message?.includes('Invalid API key')) {
       errorMessage = 'I apologize, but there\'s an issue with my API configuration. Please check the OpenAI API key settings.';
+      errorType = 'invalid_api_key';
     }
     
     return {
       success: false,
       error: error.message,
+      errorType: errorType,
       response: errorMessage
     };
   }
@@ -148,9 +153,56 @@ async function getQuickResponse(query) {
   return null;
 }
 
+/**
+ * Convert text to speech using OpenAI TTS API
+ * @param {string} text - Text to convert to speech
+ * @param {string} voice - Voice model to use (alloy, echo, fable, onyx, nova, shimmer)
+ * @returns {Promise<Buffer>} - Audio buffer in MP3 format
+ */
+async function textToSpeech(text, voice = 'alloy') {
+  try {
+    const client = getOpenAIClient();
+    
+    if (!client) {
+      throw new Error('OpenAI client not available');
+    }
+
+    // Validate voice parameter
+    const validVoices = ['alloy', 'echo', 'fable', 'onyx', 'nova', 'shimmer'];
+    if (!validVoices.includes(voice)) {
+      throw new Error(`Invalid voice. Must be one of: ${validVoices.join(', ')}`);
+    }
+
+    // Call OpenAI TTS API
+    const response = await client.audio.speech.create({
+      model: 'tts-1', // or 'tts-1-hd' for higher quality
+      voice: voice,
+      input: text,
+    });
+
+    // Convert response to buffer
+    const buffer = Buffer.from(await response.arrayBuffer());
+    
+    return {
+      success: true,
+      audio: buffer,
+      format: 'mp3'
+    };
+
+  } catch (error) {
+    console.error('❌ Error calling OpenAI TTS API:', error);
+    
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
 module.exports = {
   initializeOpenAI,
   getOpenAIClient,
   sendToChatGPT,
-  getQuickResponse
+  getQuickResponse,
+  textToSpeech
 };

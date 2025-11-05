@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useTheme } from './hooks/useTheme';
 import Layout from './components/Layout';
 import ScreenHome from './screens/ScreenHome';
@@ -42,6 +42,7 @@ function App() {
     }
     return [];
   });
+  const lastSavedVoiceRef = useRef('');
 
   // Chat messages
   const [messages, setMessages] = useState(() => {
@@ -77,7 +78,62 @@ function App() {
 
   useEffect(() => {
     localStorage.setItem('gsu-voice-conversation', JSON.stringify(voiceConversation));
+    
+    // Save voice conversations to Supabase when they're updated (with debounce)
+    if (voiceConversation && voiceConversation.length > 0) {
+      const conversationKey = JSON.stringify(voiceConversation);
+      // Only save if this is a new conversation (hasn't been saved yet)
+      if (conversationKey !== lastSavedVoiceRef.current) {
+        // Debounce to avoid saving on every keystroke/update
+        const saveTimer = setTimeout(() => {
+          saveVoiceConversationToSupabase(voiceConversation);
+          lastSavedVoiceRef.current = conversationKey;
+        }, 2000); // Wait 2 seconds after last update
+        
+        return () => clearTimeout(saveTimer);
+      }
+    }
   }, [voiceConversation]);
+
+  // Save voice conversation to Supabase
+  const saveVoiceConversationToSupabase = async (voiceMessages) => {
+    try {
+      // Only save if there are messages with at least one complete exchange (user + assistant)
+      if (!voiceMessages || voiceMessages.length < 2) return;
+      
+      const hasUserMessage = voiceMessages.some(msg => msg.role === 'user');
+      const hasAssistantMessage = voiceMessages.some(msg => msg.role === 'assistant');
+      
+      if (!hasUserMessage || !hasAssistantMessage) return;
+      
+      // Generate a title from the first user message
+      const firstUserMessage = voiceMessages.find(msg => msg.role === 'user');
+      if (!firstUserMessage) return;
+      
+      const title = firstUserMessage.text.length > 50 
+        ? firstUserMessage.text.substring(0, 50) + '...' 
+        : firstUserMessage.text;
+      
+      // Convert voice conversation format to chat message format for Supabase
+      const messages = voiceMessages.map(msg => ({
+        role: msg.role === 'assistant' ? 'bot' : msg.role,
+        text: msg.text
+      }));
+      
+      // Save to Supabase with type 'voice'
+      const result = await chatHistoryService.saveSession({
+        id: `voice-${Date.now()}`,
+        title: title,
+        messages: messages,
+        type: 'voice'
+      });
+      
+      console.log('✅ Voice conversation saved to Supabase:', result);
+    } catch (error) {
+      console.error('❌ Failed to save voice conversation to Supabase:', error);
+      // Silent fail - voice conversations still work with localStorage
+    }
+  };
 
   // Load chat history on mount
   useEffect(() => {

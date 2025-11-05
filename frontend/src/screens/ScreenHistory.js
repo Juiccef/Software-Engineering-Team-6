@@ -9,26 +9,14 @@ function ScreenHistory({ onBack, onLoadChat, messages, voiceConversation }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedConversation, setSelectedConversation] = useState(null);
+  const [activeTab, setActiveTab] = useState('all'); // 'all', 'chat', 'voice'
 
   // Load chat history on component mount
   useEffect(() => {
     loadChatHistory();
   }, []);
 
-  // Filter chat history based on search query
-  useEffect(() => {
-    if (!searchQuery.trim()) {
-      setFilteredHistory(chatHistory);
-    } else {
-      const filtered = chatHistory.filter(chat => 
-        chat.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (chat.messages && chat.messages.some(msg => 
-          msg.text.toLowerCase().includes(searchQuery.toLowerCase())
-        ))
-      );
-      setFilteredHistory(filtered);
-    }
-  }, [searchQuery, chatHistory]);
+  // Note: Filtering is now handled in the combined effect above
 
   // Combine chat + voice conversation into unified list
   useEffect(() => {
@@ -42,6 +30,7 @@ function ScreenHistory({ onBack, onLoadChat, messages, voiceConversation }) {
           title: userMessages[0]?.text?.substring(0, 50) + '...' || 'Voice Conversation',
           preview: userMessages[0]?.text || 'Voice conversation with Pounce',
           timestamp: new Date().toISOString(),
+          created_at: new Date().toISOString(),
           message_count: voiceConversation.length,
           type: 'voice',
           messages: voiceConversation
@@ -49,8 +38,27 @@ function ScreenHistory({ onBack, onLoadChat, messages, voiceConversation }) {
       }
     }
 
-    setFilteredHistory(combined);
-  }, [voiceConversation, chatHistory]);
+    // Filter by tab
+    let tabFiltered = combined;
+    if (activeTab === 'chat') {
+      tabFiltered = combined.filter(item => !item.type || item.type !== 'voice');
+    } else if (activeTab === 'voice') {
+      tabFiltered = combined.filter(item => item.type === 'voice');
+    }
+
+    // Apply search filter
+    if (!searchQuery.trim()) {
+      setFilteredHistory(tabFiltered);
+    } else {
+      const filtered = tabFiltered.filter(chat => 
+        chat.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (chat.messages && chat.messages.some(msg => 
+          msg.text.toLowerCase().includes(searchQuery.toLowerCase())
+        ))
+      );
+      setFilteredHistory(filtered);
+    }
+  }, [voiceConversation, chatHistory, activeTab, searchQuery]);
 
   const loadChatHistory = async () => {
     try {
@@ -77,9 +85,18 @@ function ScreenHistory({ onBack, onLoadChat, messages, voiceConversation }) {
     }
   };
 
-  const handleDeleteChat = async (chatId) => {
-    if (window.confirm('Are you sure you want to delete this chat?')) {
+  const handleDeleteChat = async (chatId, e) => {
+    e?.stopPropagation();
+    if (window.confirm('Are you sure you want to delete this conversation?')) {
       try {
+        // Voice conversations are stored locally, so we just need to clear them
+        if (chatId?.startsWith('voice-')) {
+          // Voice conversations are handled by the parent component
+          // We can't delete them from here, but we can show a message
+          alert('Voice conversations are session-based and will be cleared when you refresh the page.');
+          return;
+        }
+        
         await chatHistoryService.deleteSession(chatId);
         await loadChatHistory();
       } catch (error) {
@@ -264,8 +281,44 @@ function ScreenHistory({ onBack, onLoadChat, messages, voiceConversation }) {
           borderRadius: 8,
           border: "1px solid var(--line)"
         }}>
-          {chatHistory.length} {chatHistory.length === 1 ? 'chat' : 'chats'}
+          {filteredHistory.length} {filteredHistory.length === 1 ? 'conversation' : 'conversations'}
+          {activeTab !== 'all' && ` (${activeTab})`}
         </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{
+        display: "flex",
+        gap: 8,
+        borderBottom: "2px solid var(--line)",
+        paddingBottom: 8
+      }}>
+        {['all', 'chat', 'voice'].map((tab) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(tab)}
+            style={{
+              background: activeTab === tab ? GSU.blue : "transparent",
+              color: activeTab === tab ? "white" : "var(--fg)",
+              border: `1px solid ${activeTab === tab ? GSU.blue : "var(--line)"}`,
+              borderRadius: 8,
+              padding: "8px 16px",
+              cursor: "pointer",
+              fontSize: 14,
+              fontWeight: activeTab === tab ? 600 : 400,
+              transition: "all 0.2s ease",
+              textTransform: "capitalize",
+              display: "flex",
+              alignItems: "center",
+              gap: 6
+            }}
+          >
+            {tab === 'all' && '📋'}
+            {tab === 'chat' && '💬'}
+            {tab === 'voice' && '🎤'}
+            {tab === 'all' ? 'All' : tab === 'chat' ? 'Chat' : 'Voice'}
+          </button>
+        ))}
       </div>
 
       {/* Search Bar */}
@@ -439,10 +492,7 @@ function ScreenHistory({ onBack, onLoadChat, messages, voiceConversation }) {
                   {formatTimestamp(chat.created_at)}
                 </div>
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleDeleteChat(chat.id);
-                  }}
+                  onClick={(e) => handleDeleteChat(chat.id, e)}
                   style={{
                     background: "none",
                     border: "none",
@@ -452,7 +502,7 @@ function ScreenHistory({ onBack, onLoadChat, messages, voiceConversation }) {
                     padding: 4,
                     borderRadius: 4
                   }}
-                  title="Delete chat"
+                  title="Delete conversation"
                 >
                   🗑️
                 </button>
