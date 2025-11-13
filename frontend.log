@@ -1,0 +1,26 @@
+
+> gsu-chatbot-frontend@1.0.0 prestart
+> rm -rf node_modules/fork-ts-checker-webpack-plugin/node_modules/ajv* node_modules/fork-ts-checker-webpack-plugin/node_modules/schema-utils node_modules/schema-utils/node_modules/ajv-keywords 2>/dev/null || true
+
+
+> gsu-chatbot-frontend@1.0.0 start
+> PORT=3003 SKIP_VALIDATION=true DISABLE_ESLINT_PLUGIN=true react-scripts start
+
+(node:39812) [DEP0176] DeprecationWarning: fs.F_OK is deprecated, use fs.constants.F_OK instead
+(Use `node --trace-deprecation ...` to show where the warning was created)
+(node:39812) [DEP_WEBPACK_DEV_SERVER_ON_AFTER_SETUP_MIDDLEWARE] DeprecationWarning: 'onAfterSetupMiddleware' option is deprecated. Please use the 'setupMiddlewares' option.
+(node:39812) [DEP_WEBPACK_DEV_SERVER_ON_BEFORE_SETUP_MIDDLEWARE] DeprecationWarning: 'onBeforeSetupMiddleware' option is deprecated. Please use the 'setupMiddlewares' option.
+Starting the development server...
+
+Compiled successfully!
+
+You can now view gsu-chatbot-frontend in the browser.
+
+  Local:            http://localhost:3003
+  On Your Network:  http://10.250.73.238:3003
+
+Note that the development build is not optimized.
+To create a production build, use npm run build.
+
+webpack compiled successfully
+(node:39812) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.

@@ -47,10 +47,17 @@ router.post('/message', async (req, res) => {
         timestamp: new Date().toISOString()
       });
     } else {
-      res.status(500).json({
+      // Handle quota errors with appropriate status code
+      const statusCode = (result.errorType === 'quota_exceeded' || result.error === 'OpenAI API quota exceeded') ? 429 : 500;
+      
+      res.status(statusCode).json({
         success: false,
         error: result.error,
-        response: result.response
+        errorType: result.errorType || 'general_error',
+        response: result.response,
+        message: result.errorType === 'quota_exceeded' 
+          ? 'The OpenAI API quota has been exceeded. Please check your billing at https://platform.openai.com/usage'
+          : undefined
       });
     }
 
@@ -113,7 +120,11 @@ router.post('/stream', async (req, res) => {
     if (result.success) {
       res.write(`data: {"type":"response","content":"${result.response}"}\n\n`);
     } else {
-      res.write(`data: {"type":"error","content":"${result.response}"}\n\n`);
+      // Include error type for quota errors
+      const errorData = result.errorType === 'quota_exceeded' 
+        ? `{"type":"error","content":"${result.response}","errorType":"quota_exceeded","message":"The OpenAI API quota has been exceeded. Please check your billing at https://platform.openai.com/usage"}`
+        : `{"type":"error","content":"${result.response}"}`;
+      res.write(`data: ${errorData}\n\n`);
     }
     
     res.write('data: {"type":"done"}\n\n');
@@ -212,7 +223,7 @@ router.post('/quick-actions', async (req, res) => {
  */
 router.post('/sessions', async (req, res) => {
   try {
-    const { title, messages = [] } = req.body;
+    const { title, messages = [], type = 'chat' } = req.body;
 
     if (!title || !messages || !Array.isArray(messages)) {
       return res.status(400).json({
@@ -228,11 +239,12 @@ router.post('/sessions', async (req, res) => {
       });
     }
 
-    // Create the chat session first
+    // Create the chat session first with session_type
     const { data: sessionData, error: sessionError } = await supabase
       .from('chat_sessions')
       .insert({
-        title: title
+        title: title,
+        session_type: type || 'chat' // 'chat' or 'voice'
       })
       .select()
       .single();
@@ -321,6 +333,7 @@ router.get('/sessions', async (req, res) => {
       title: session.title,
       created_at: session.created_at,
       updated_at: session.created_at, // Use created_at as updated_at for now
+      type: session.session_type || 'chat', // Include session type (voice or chat)
       message_count: session.chat_messages ? session.chat_messages.length : 0,
       messages: session.chat_messages ? session.chat_messages.map(msg => ({
         id: msg.id,

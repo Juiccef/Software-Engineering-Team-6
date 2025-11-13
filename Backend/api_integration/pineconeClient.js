@@ -90,6 +90,15 @@ async function getEmbedding(text) {
     return response.data[0].embedding;
   } catch (error) {
     console.error('❌ Error generating embedding:', error);
+    
+    // Check for quota errors
+    if (error.code === 'insufficient_quota' || error.status === 429) {
+      const quotaError = new Error('OpenAI API quota exceeded. Please check your billing and usage limits at https://platform.openai.com/usage');
+      quotaError.code = 'insufficient_quota';
+      quotaError.status = 429;
+      throw quotaError;
+    }
+    
     throw error;
   }
 }
@@ -133,6 +142,12 @@ async function searchContext(query, topK = 3) {
     return contextChunks;
   } catch (error) {
     console.error('❌ Error searching Pinecone:', error);
+    
+    // If quota error, re-throw it so it can be handled properly
+    if (error.code === 'insufficient_quota' || error.status === 429) {
+      throw error;
+    }
+    
     return [];
   }
 }
@@ -196,6 +211,15 @@ Always maintain a helpful and professional tone while being approachable like a 
     return completion.choices[0].message.content;
   } catch (error) {
     console.error('❌ Error generating contextual response:', error);
+    
+    // Check for quota errors
+    if (error.code === 'insufficient_quota' || error.status === 429) {
+      const quotaError = new Error('OpenAI API quota exceeded. Please check your billing and usage limits at https://platform.openai.com/usage');
+      quotaError.code = 'insufficient_quota';
+      quotaError.status = 429;
+      throw quotaError;
+    }
+    
     throw error;
   }
 }
@@ -225,6 +249,17 @@ async function sendToChatGPTWithContext(message, conversationHistory = [], optio
     };
   } catch (error) {
     console.error('❌ Error in context-aware chat:', error);
+    
+    // Handle quota errors specifically
+    if (error.code === 'insufficient_quota' || error.status === 429) {
+      return {
+        success: false,
+        error: 'OpenAI API quota exceeded',
+        errorType: 'quota_exceeded',
+        response: 'I apologize, but the OpenAI API quota has been exceeded. Please check your billing and usage limits at https://platform.openai.com/usage. You may need to add credits to your account or upgrade your plan.',
+        hasContext: false
+      };
+    }
     
     // Fallback to regular response if context fails
     return {

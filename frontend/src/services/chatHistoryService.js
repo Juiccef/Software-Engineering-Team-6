@@ -50,7 +50,8 @@ class ChatHistoryService {
         },
         body: JSON.stringify({
           title: sessionData.title || this.generateTitle(sessionData.messages),
-          messages: sessionData.messages || []
+          messages: sessionData.messages || [],
+          type: sessionData.type || 'chat' // Include type to distinguish voice from chat
         })
       });
 
