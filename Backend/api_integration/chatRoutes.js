@@ -1,9 +1,43 @@
 const express = require('express');
+const multer = require('multer');
 const { sendToChatGPT, getQuickResponse } = require('./openaiClient');
 const { sendToChatGPTWithContext, isPineconeAvailable } = require('./pineconeClient');
 const supabase = require('./supaBase');
+const { uploadFile, getFileUrl, listFiles, deleteFile } = require('./supaBase');
 
 const router = express.Router();
+
+// Configure multer for file uploads
+const storage = multer.memoryStorage();
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 50 * 1024 * 1024, // 50MB max file size
+  },
+  fileFilter: (req, file, cb) => {
+    // Allow common file types
+    const allowedTypes = [
+      'image/jpeg',
+      'image/png',
+      'image/gif',
+      'image/webp',
+      'application/pdf',
+      'text/plain',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+    ];
+
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('File type not allowed'), false);
+    }
+  }
+});
 
 /**
  * POST /api/chat/message
@@ -49,13 +83,13 @@ router.post('/message', async (req, res) => {
     } else {
       // Handle quota errors with appropriate status code
       const statusCode = (result.errorType === 'quota_exceeded' || result.error === 'OpenAI API quota exceeded') ? 429 : 500;
-      
+
       res.status(statusCode).json({
         success: false,
         error: result.error,
         errorType: result.errorType || 'general_error',
         response: result.response,
-        message: result.errorType === 'quota_exceeded' 
+        message: result.errorType === 'quota_exceeded'
           ? 'The OpenAI API quota has been exceeded. Please check your billing at https://platform.openai.com/usage'
           : undefined
       });
@@ -116,17 +150,17 @@ router.post('/stream', async (req, res) => {
       // Fallback to regular ChatGPT response
       result = await sendToChatGPT(message, conversationHistory, options);
     }
-    
+
     if (result.success) {
       res.write(`data: {"type":"response","content":"${result.response}"}\n\n`);
     } else {
       // Include error type for quota errors
-      const errorData = result.errorType === 'quota_exceeded' 
+      const errorData = result.errorType === 'quota_exceeded'
         ? `{"type":"error","content":"${result.response}","errorType":"quota_exceeded","message":"The OpenAI API quota has been exceeded. Please check your billing at https://platform.openai.com/usage"}`
         : `{"type":"error","content":"${result.response}"}`;
       res.write(`data: ${errorData}\n\n`);
     }
-    
+
     res.write('data: {"type":"done"}\n\n');
     res.end();
 
@@ -146,10 +180,10 @@ router.get('/status', async (req, res) => {
   try {
     const { getOpenAIClient } = require('./openaiClient');
     const { getPineconeStatus } = require('./pineconeClient');
-    
+
     const client = getOpenAIClient();
     const pineconeStatus = getPineconeStatus();
-    
+
     if (!client) {
       return res.json({
         success: false,
@@ -161,7 +195,7 @@ router.get('/status', async (req, res) => {
 
     // Test with a simple message
     const testResult = await sendToChatGPT('Hello, are you working?');
-    
+
     res.json({
       success: testResult.success,
       status: testResult.success ? 'Connected' : 'Error',
@@ -561,6 +595,205 @@ router.delete('/sessions/:id', async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Internal server error',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/chat/upload
+ * Upload a file to Supabase User_Files bucket
+ */
+router.post('/upload', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        error: 'No file provided'
+      });
+    }
+
+    if (!supabase) {
+      return res.status(500).json({
+        success: false,
+        error: 'Supabase not configured'
+      });
+    }
+
+    // Generate unique filename with timestamp
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const originalName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
+    const fileName = `${timestamp}_${originalName}`;
+
+    // Upload file to User_Files bucket
+    const uploadResult = await uploadFile(
+      'User_Files',
+      fileName,
+      req.file.buffer,
+      req.file.mimetype
+    );
+
+    // Get a signed URL for the uploaded file (valid for 1 hour)
+    const fileUrl = await getFileUrl('User_Files', fileName, 3600);
+
+    res.json({
+      success: true,
+      file: {
+        id: uploadResult.id,
+        name: originalName,
+        fileName: fileName,
+        size: req.file.size,
+        type: req.file.mimetype,
+        url: fileUrl,
+        uploadedAt: new Date().toISOString()
+      },
+      message: 'File uploaded successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ File upload error:', error);
+
+    // Handle specific Supabase errors
+    if (error.message?.includes('Duplicate')) {
+      return res.status(409).json({
+        success: false,
+        error: 'File with this name already exists',
+        details: error.message
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'File upload failed',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/chat/files
+ * List files in the User_Files bucket
+ */
+router.get('/files', async (req, res) => {
+  try {
+    if (!supabase) {
+      return res.status(500).json({
+        success: false,
+        error: 'Supabase not configured'
+      });
+    }
+
+    const files = await listFiles('User_Files');
+
+    // Add signed URLs to each file
+    const filesWithUrls = await Promise.all(
+      files.map(async (file) => {
+        try {
+          const url = await getFileUrl('User_Files', file.name, 3600);
+          return {
+            id: file.id,
+            name: file.name,
+            size: file.metadata?.size || 0,
+            type: file.metadata?.mimetype || 'unknown',
+            url: url,
+            uploadedAt: file.created_at,
+            lastModified: file.updated_at
+          };
+        } catch (error) {
+          console.error('❌ Error getting URL for file:', file.name, error);
+          return {
+            id: file.id,
+            name: file.name,
+            size: file.metadata?.size || 0,
+            type: file.metadata?.mimetype || 'unknown',
+            url: null,
+            uploadedAt: file.created_at,
+            lastModified: file.updated_at,
+            error: 'Could not generate URL'
+          };
+        }
+      })
+    );
+
+    res.json({
+      success: true,
+      files: filesWithUrls,
+      count: filesWithUrls.length
+    });
+
+  } catch (error) {
+    console.error('❌ List files error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to list files',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * GET /api/chat/files/:fileName
+ * Get a specific file URL
+ */
+router.get('/files/:fileName', async (req, res) => {
+  try {
+    const { fileName } = req.params;
+
+    if (!supabase) {
+      return res.status(500).json({
+        success: false,
+        error: 'Supabase not configured'
+      });
+    }
+
+    const fileUrl = await getFileUrl('User_Files', fileName, 3600);
+
+    res.json({
+      success: true,
+      file: {
+        name: fileName,
+        url: fileUrl,
+        expiresIn: 3600
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Get file URL error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get file URL',
+      details: error.message
+    });
+  }
+});
+
+/**
+ * DELETE /api/chat/files/:fileName
+ * Delete a file from the User_Files bucket
+ */
+router.delete('/files/:fileName', async (req, res) => {
+  try {
+    const { fileName } = req.params;
+
+    if (!supabase) {
+      return res.status(500).json({
+        success: false,
+        error: 'Supabase not configured'
+      });
+    }
+
+    await deleteFile('User_Files', fileName);
+
+    res.json({
+      success: true,
+      message: 'File deleted successfully'
+    });
+
+  } catch (error) {
+    console.error('❌ Delete file error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to delete file',
       details: error.message
     });
   }

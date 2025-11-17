@@ -9,18 +9,25 @@
     "upload-pinecone": "node scripts/uploadToPinecone.js",
     "test": "node test-openai.js"
   },
-  "keywords": ["chatbot", "openai", "gsu", "api"],
+  "keywords": [
+    "chatbot",
+    "openai",
+    "gsu",
+    "api"
+  ],
   "author": "GSU Software Engineering Team 6",
   "license": "MIT",
   "dependencies": {
-    "express": "^4.18.2",
+    "@pinecone-database/pinecone": "^2.0.1",
+    "@supabase/supabase-js": "^2.81.1",
+    "body-parser": "^1.20.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "openai": "^4.20.1",
-    "helmet": "^7.1.0",
+    "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
-    "body-parser": "^1.20.2",
-    "@pinecone-database/pinecone": "^2.0.1"
+    "helmet": "^7.1.0",
+    "multer": "^2.0.2",
+    "openai": "^4.20.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"
