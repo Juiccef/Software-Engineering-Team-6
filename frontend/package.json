@@ -4,14 +4,15 @@
   "description": "GSU Panther Chatbot Frontend - Interactive Demo",
   "private": true,
   "dependencies": {
-    "babel-loader": "8.3.0",
+    "babel-loader": "^8.3.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-scripts": "5.0.1",
-    "schema-utils": "3.3.0"
+    "react-scripts": "5.0.1"
   },
   "scripts": {
-    "prestart": "rm -rf node_modules/fork-ts-checker-webpack-plugin/node_modules/ajv* node_modules/fork-ts-checker-webpack-plugin/node_modules/schema-utils node_modules/schema-utils/node_modules/ajv-keywords 2>/dev/null || true",
+    "fix-schema-utils": "mkdir -p node_modules/babel-loader/node_modules && (cd node_modules/babel-loader/node_modules && npm install schema-utils@2.7.1 --no-save --legacy-peer-deps 2>/dev/null || true) && rm -rf node_modules/fork-ts-checker-webpack-plugin/node_modules/ajv* node_modules/fork-ts-checker-webpack-plugin/node_modules/schema-utils node_modules/schema-utils/node_modules/ajv-keywords 2>/dev/null || true",
+    "prestart": "npm run fix-schema-utils || true",
+    "postinstall": "npm run fix-schema-utils || true",
     "start": "PORT=3003 SKIP_VALIDATION=true DISABLE_ESLINT_PLUGIN=true react-scripts start",
     "build": "react-scripts build",
     "test": "react-scripts test",
@@ -40,6 +41,7 @@
     "ajv-formats": "^2.1.1",
     "ajv-keywords": "^5",
     "patch-package": "^8.0.1",
+    "schema-utils": "^3.3.0",
     "typescript": "^4.9.5"
   },
   "overrides": {
@@ -47,7 +49,7 @@
     "ajv-formats": "^2.1.1",
     "ajv-keywords": "^5",
     "babel-loader": {
-      "schema-utils": "3.3.0"
+      "schema-utils": "2.7.1"
     },
     "fork-ts-checker-webpack-plugin": {
       "ajv": "^8",
@@ -57,7 +59,8 @@
     "css-minimizer-webpack-plugin": {
       "ajv": "^8",
       "ajv-formats": "^2.1.1"
-    }
+    },
+    "schema-utils": "^3.3.0"
   },
   "proxy": "http://localhost:5002"
 }

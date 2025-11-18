@@ -50,6 +50,7 @@ app.use(cors({
 }));
 
 // Body parsing middleware - Handle JSON and URL-encoded data
+// Note: multipart/form-data is handled by multer in the route, not here
 app.use(bodyParser.json({ limit: '10mb' }));
 app.use(bodyParser.urlencoded({ extended: true, limit: '10mb' }));
 

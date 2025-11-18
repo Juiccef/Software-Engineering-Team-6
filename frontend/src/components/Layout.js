@@ -26,6 +26,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import HeaderBar from './HeaderBar';
 import Sidebar from './Sidebar';
+import { uploadFile, formatFileSize, getFileIcon, isFileTypeSupported } from '../services/fileService';
 
 function Layout({ 
   children, 
@@ -47,7 +48,10 @@ function Layout({
   const [isUserScrolling, setIsUserScrolling] = useState(false); // Track if user is manually scrolling
   const [shouldAutoScroll, setShouldAutoScroll] = useState(true); // Whether to auto-scroll
   const [hasNewMessages, setHasNewMessages] = useState(false); // Track if there are new messages when user scrolled up
+  const [isUploading, setIsUploading] = useState(false); // Track file upload status
+  const [uploadProgress, setUploadProgress] = useState(0); // Track upload progress
   const chatAreaRef = useRef(null); // Reference to chat area for auto-scroll
+  const fileRef = useRef(null); // Reference to file input
 
   // Check if user is near the bottom of the chat
   const isNearBottom = () => {
@@ -122,6 +126,102 @@ function Layout({
       if (chatAreaRef.current) {
         chatAreaRef.current.scrollTop = chatAreaRef.current.scrollHeight;
       }
+    }
+  };
+
+  // Handle file upload
+  const handleFileUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Reset file input
+    e.target.value = '';
+
+    try {
+      // Validate file type
+      if (!isFileTypeSupported(file.type)) {
+        if (onSendMessage) {
+          onSendMessage({
+            role: "system",
+            text: `❌ File type not supported: ${file.type}. Please upload images, PDFs, or Office documents.`,
+            isError: true
+          });
+        }
+        return;
+      }
+
+      // Check file size (50MB max)
+      const maxSize = 50 * 1024 * 1024;
+      if (file.size > maxSize) {
+        if (onSendMessage) {
+          onSendMessage({
+            role: "system",
+            text: `❌ File too large: ${formatFileSize(file.size)}. Maximum size is 50MB.`,
+            isError: true
+          });
+        }
+        return;
+      }
+
+      setIsUploading(true);
+      setUploadProgress(0);
+
+      // Send upload start message
+      if (onSendMessage) {
+        onSendMessage({
+          role: "system",
+          text: `📤 Uploading ${file.name} (${formatFileSize(file.size)})...`,
+          isUploading: true
+        });
+      }
+
+      // Upload file to Supabase
+      const result = await uploadFile(file, (progress) => {
+        setUploadProgress(progress);
+      });
+
+      if (result.success) {
+        // Send success message with file info
+        if (onSendMessage) {
+          onSendMessage({
+            role: "user",
+            text: `${getFileIcon(file.type)} Uploaded: ${file.name}`,
+            file: {
+              name: result.file.name,
+              fileName: result.file.fileName,
+              size: result.file.size,
+              type: result.file.type,
+              url: result.file.url,
+              uploadedAt: result.file.uploadedAt
+            }
+          });
+
+          // Send a follow-up bot message
+          setTimeout(() => {
+            if (onSendMessage) {
+              onSendMessage({
+                role: "bot",
+                text: `Great! I've received your file "${file.name}". I can help you analyze or work with this file. What would you like me to do with it?`
+              });
+            }
+          }, 1000);
+        }
+      } else {
+        throw new Error(result.error || 'Upload failed');
+      }
+
+    } catch (error) {
+      console.error('Upload error:', error);
+      if (onSendMessage) {
+        onSendMessage({
+          role: "system",
+          text: `❌ Upload failed: ${error.message}`,
+          isError: true
+        });
+      }
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
     }
   };
 
@@ -613,57 +713,50 @@ function Layout({
                   </button>
                 )}
                 
-                {/* Upload Button */}
+                {/* File Upload Button */}
                 <button 
-                  onClick={() => setShowUploadModal(true)}
+                  onClick={() => fileRef.current?.click()}
+                  disabled={isUploading}
                   style={{ 
-                    background: "var(--card)",
-                    color: "var(--fg)", 
+                    background: isUploading ? "var(--line)" : "var(--card)",
+                    color: isUploading ? "var(--muted)" : "var(--fg)", 
                     border: "1px solid var(--line)", 
                     padding: "12px", 
                     borderRadius: "50%", 
-                    cursor: "pointer",
+                    cursor: isUploading ? "not-allowed" : "pointer",
                     width: 44,
                     height: 44,
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
                     fontSize: 16,
-                    transition: "all 0.2s ease"
+                    transition: "all 0.2s ease",
+                    opacity: isUploading ? 0.6 : 1
                   }}
                   onMouseEnter={(e) => {
-                    e.target.style.background = "var(--hover)";
-                    e.target.style.transform = "scale(1.05)";
+                    if (!isUploading) {
+                      e.target.style.background = "var(--hover)";
+                      e.target.style.transform = "scale(1.05)";
+                    }
                   }}
                   onMouseLeave={(e) => {
-                    e.target.style.background = "var(--card)";
+                    e.target.style.background = isUploading ? "var(--line)" : "var(--card)";
                     e.target.style.transform = "scale(1)";
                   }}
+                  title={isUploading ? `Uploading... ${Math.round(uploadProgress)}%` : "Upload file"}
                 >
-                  📤
+                  {isUploading ? '⏳' : '📤'}
                 </button>
-                
-                      <button 
-                        onClick={handleSendMessage}
-                        disabled={!inputMessage.trim()}
-                        style={{ 
-                          background: inputMessage.trim() ? "#0039A6" : "var(--line)",
-                          color: inputMessage.trim() ? "white" : "var(--fg)", 
-                          border: 0, 
-                          padding: "12px", 
-                          borderRadius: "50%", 
-                          cursor: inputMessage.trim() ? "pointer" : "not-allowed",
-                          width: 44,
-                          height: 44,
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                          fontSize: 16,
-                          transition: "all 0.2s ease"
-                        }}
-                      >
-                        ✈️
-                      </button>
+
+                {/* Hidden file input */}
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/*,application/pdf,text/plain,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+                  hidden
+                  onChange={handleFileUpload}
+                  disabled={isUploading}
+                />
               </div>
             </div>
           )}

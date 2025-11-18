@@ -3,7 +3,7 @@
  * @author GSU Software Engineering Team 6
  */
 
-const API_BASE_URL = 'http://localhost:5001/api/chat';
+const API_BASE_URL = 'http://localhost:5002/api/chat';
 
 /**
  * Upload a file to Supabase User_Files bucket

@@ -1,0 +1,53 @@
+-- GSU Panther Chatbot - Storage Bucket Setup
+-- Run this in your Supabase SQL Editor to create the file upload storage bucket
+-- 
+-- Note: Storage buckets are created via the Supabase Dashboard or API, not SQL.
+-- However, you can use the Supabase Dashboard to create the bucket:
+--
+-- 1. Go to your Supabase Dashboard
+-- 2. Navigate to Storage
+-- 3. Click "New bucket"
+-- 4. Name: "User_Files"
+-- 5. Public: false (private bucket)
+-- 6. File size limit: 50MB
+-- 7. Allowed MIME types: 
+--    - image/jpeg
+--    - image/png
+--    - image/gif
+--    - image/webp
+--    - application/pdf
+--    - text/plain
+--    - application/msword
+--    - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+--    - application/vnd.ms-excel
+--    - application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+--    - application/vnd.ms-powerpoint
+--    - application/vnd.openxmlformats-officedocument.presentationml.presentation
+--
+-- Storage Policies (RLS):
+-- After creating the bucket, set up Row Level Security policies:
+--
+-- Policy 1: Allow authenticated users to upload files
+-- CREATE POLICY "Allow authenticated uploads" ON storage.objects
+--   FOR INSERT TO authenticated
+--   WITH CHECK (bucket_id = 'User_Files');
+--
+-- Policy 2: Allow authenticated users to read their own files
+-- CREATE POLICY "Allow authenticated reads" ON storage.objects
+--   FOR SELECT TO authenticated
+--   USING (bucket_id = 'User_Files');
+--
+-- Policy 3: Allow authenticated users to delete their own files
+-- CREATE POLICY "Allow authenticated deletes" ON storage.objects
+--   FOR DELETE TO authenticated
+--   USING (bucket_id = 'User_Files');
+--
+-- For development/testing, you can use a more permissive policy:
+-- CREATE POLICY "Allow all operations on User_Files" ON storage.objects
+--   FOR ALL USING (bucket_id = 'User_Files') WITH CHECK (bucket_id = 'User_Files');
+
+-- IMPORTANT: 
+-- The file upload feature uses Supabase Storage (buckets), NOT database tables.
+-- No additional database tables are needed for file uploads.
+-- The files are stored in the "User_Files" storage bucket.
+
