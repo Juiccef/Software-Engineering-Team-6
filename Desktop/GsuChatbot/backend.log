@@ -1,0 +1,7 @@
+
+> gsu-chatbot-backend@1.0.0 start
+> node server.js
+
+[supabase] ✅ Supabase client initialized
+🚀 GSU Chatbot Backend API running on port 5002
+📍 Health check: http://localhost:5002/api/health

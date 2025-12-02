@@ -68,9 +68,6 @@ function Sidebar({ open, onClose, onGo }) {
           <button className="navbtn" onClick={() => onGo("settings")} style={navBtnStyle}>Settings</button>
           <button className="navbtn" onClick={() => onGo("history")} style={navBtnStyle}>History</button>
         </nav>
-        <div style={{ marginTop: "auto", fontSize: 12, opacity: 0.8 }}>
-          GSU Blue/Black (dark) • GSU Blue/White (light)
-        </div>
       </div>
     </div>
   );

@@ -15,6 +15,73 @@ let pineconeClient = null;
 let pineconeIndex = null;
 let openaiClient = null;
 
+// Query cache with TTL (Time To Live)
+const queryCache = new Map();
+const CACHE_TTL = 60 * 1000; // 60 seconds cache duration
+const MAX_CACHE_SIZE = 100; // Maximum number of cached queries
+
+/**
+ * Generate cache key from query and topK
+ * @param {string} query - User query
+ * @param {number} topK - Number of results
+ * @returns {string} - Cache key
+ */
+function getCacheKey(query, topK) {
+  // Normalize query (lowercase, trim) for better cache hits
+  const normalizedQuery = query.toLowerCase().trim();
+  return `${normalizedQuery}:${topK}`;
+}
+
+/**
+ * Get cached query result if available and not expired
+ * @param {string} query - User query
+ * @param {number} topK - Number of results
+ * @returns {Array|null} - Cached results or null if not found/expired
+ */
+function getCachedResult(query, topK) {
+  const cacheKey = getCacheKey(query, topK);
+  const cached = queryCache.get(cacheKey);
+  
+  if (!cached) {
+    return null;
+  }
+  
+  // Check if cache entry is expired
+  const now = Date.now();
+  if (now - cached.timestamp > CACHE_TTL) {
+    queryCache.delete(cacheKey);
+    return null;
+  }
+  
+  console.log(`💾 Cache hit for query: "${query.substring(0, 50)}..."`);
+  return cached.results;
+}
+
+/**
+ * Store query result in cache
+ * @param {string} query - User query
+ * @param {number} topK - Number of results
+ * @param {Array} results - Query results
+ */
+function setCachedResult(query, topK, results) {
+  // Clean up old cache entries if we're at max size
+  if (queryCache.size >= MAX_CACHE_SIZE) {
+    // Remove oldest entries (simple FIFO - remove first entry)
+    const firstKey = queryCache.keys().next().value;
+    if (firstKey) {
+      queryCache.delete(firstKey);
+    }
+  }
+  
+  const cacheKey = getCacheKey(query, topK);
+  queryCache.set(cacheKey, {
+    results: results,
+    timestamp: Date.now()
+  });
+  
+  console.log(`💾 Cached query result: "${query.substring(0, 50)}..." (${queryCache.size}/${MAX_CACHE_SIZE} entries)`);
+}
+
 /**
  * Initialize Pinecone client and index
  */
@@ -111,6 +178,12 @@ async function getEmbedding(text) {
  */
 async function searchContext(query, topK = 3) {
   try {
+    // Check cache first
+    const cachedResults = getCachedResult(query, topK);
+    if (cachedResults !== null) {
+      return cachedResults;
+    }
+    
     if (!pineconeIndex) {
       initializePinecone();
     }
@@ -138,6 +211,9 @@ async function searchContext(query, topK = 3) {
       source: match.metadata?.source || '',
       topic: match.metadata?.topic || ''
     }));
+
+    // Cache the results
+    setCachedResult(query, topK, contextChunks);
 
     return contextChunks;
   } catch (error) {
@@ -181,6 +257,13 @@ async function generateContextualResponse(query, contextChunks, options = {}) {
     // Get base system prompt with personality/style settings
     const basePrompt = getSystemPrompt(settings);
     
+    // Normalize conversation history format
+    const conversationHistory = (options.conversationHistory || []).map(msg => {
+      const role = msg.role === 'bot' ? 'assistant' : (msg.role === 'user' ? 'user' : 'assistant');
+      const content = msg.content || msg.text || '';
+      return { role, content };
+    }).filter(msg => msg.content && msg.content.trim().length > 0);
+    
     // Create enhanced system prompt with context
     const systemPrompt = `${basePrompt}
 
@@ -191,7 +274,9 @@ ${contextText}
 When answering questions:
 - Use the provided context to give accurate, specific information about GSU
 - If the context contains relevant information, prioritize it over general knowledge
-- If the context doesn't contain the answer, acknowledge this and provide the best general answer you can`;
+- If the context doesn't contain the answer, acknowledge this and provide the best general answer you can
+- Pay attention to the conversation history - remember what the user has mentioned earlier (buildings, topics, courses, etc.)
+- If the user refers to something mentioned earlier (like "that building" or "those classes"), use the conversation history to understand what they're referring to`;
 
     const completion = await openaiClient.chat.completions.create({
       model: settings.model || options.model || 'gpt-3.5-turbo',
@@ -200,6 +285,7 @@ When answering questions:
           role: 'system',
           content: systemPrompt
         },
+        ...conversationHistory, // Include conversation history for context
         {
           role: 'user',
           content: query
@@ -240,8 +326,11 @@ async function sendToChatGPTWithContext(message, conversationHistory = [], optio
     // Search for relevant context
     const contextChunks = await searchContext(message, options.topK || 3);
     
-    // Generate context-aware response (pass settings through)
-    const contextualResponse = await generateContextualResponse(message, contextChunks, options);
+    // Generate context-aware response (pass settings and conversation history through)
+    const contextualResponse = await generateContextualResponse(message, contextChunks, {
+      ...options,
+      conversationHistory: conversationHistory // Pass conversation history for context
+    });
 
     return {
       success: true,

@@ -38,11 +38,16 @@ function ScreenHistory({ onBack, onLoadChat, messages, voiceConversation }) {
       }
     }
 
-    // Filter by tab
+    // Filter by tab - ensure proper separation
     let tabFiltered = combined;
     if (activeTab === 'chat') {
-      tabFiltered = combined.filter(item => !item.type || item.type !== 'voice');
+      // Chat tab: Only show items that are explicitly 'chat' type or have no type (default to chat)
+      tabFiltered = combined.filter(item => {
+        const itemType = item.type || 'chat';
+        return itemType === 'chat';
+      });
     } else if (activeTab === 'voice') {
+      // Voice tab: Only show items that are explicitly 'voice' type
       tabFiltered = combined.filter(item => item.type === 'voice');
     }
 
@@ -110,8 +115,15 @@ function ScreenHistory({ onBack, onLoadChat, messages, voiceConversation }) {
     setSelectedConversation(null);
   };
 
-  const getTypeIcon = (type) => (type === 'voice' ? '🎤' : '💬');
-  const getTypeColor = (type) => (type === 'voice' ? '#17cf6e' : GSU.blue);
+  // Only show mic emoji for voice chats, chat icon for everything else
+  const getTypeIcon = (type) => {
+    const itemType = type || 'chat';
+    return itemType === 'voice' ? '🎤' : '💬';
+  };
+  const getTypeColor = (type) => {
+    const itemType = type || 'chat';
+    return itemType === 'voice' ? '#17cf6e' : GSU.blue;
+  };
   const formatTimestamp = (timestamp) => chatHistoryService.formatTimestamp(timestamp);
 
   // If a conversation is selected (voice)
@@ -443,9 +455,9 @@ function ScreenHistory({ onBack, onLoadChat, messages, voiceConversation }) {
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <div style={{ 
                     fontSize: 16,
-                    color: getTypeColor(chat.type || 'chat')
+                    color: getTypeColor(chat.type)
                   }}>
-                    {getTypeIcon(chat.type || 'chat')}
+                    {getTypeIcon(chat.type)}
                   </div>
                   <h3 style={{ 
                     margin: 0, 

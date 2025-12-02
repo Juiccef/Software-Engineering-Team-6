@@ -86,8 +86,74 @@ router.post('/message', async (req, res) => {
     // Check for pipeline trigger
     const isTrigger = SchedulePlanningPipeline.detectTrigger(message);
     if (isTrigger && !isInPipeline && sessionId) {
-      // Start pipeline
-      await SchedulePlanningPipeline.updateState(sessionId, SchedulePlanningPipeline.STATES.COLLECTING_MAJOR, {});
+      // Extract course preferences from conversation history before starting pipeline
+      let requestedCourses = [];
+      try {
+        // Look for course mentions in recent conversation history
+        const recentHistory = conversationHistory.slice(-10); // Last 10 messages
+        const historyText = recentHistory.map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content || m.text || ''}`).join('\n');
+        
+        if (historyText && historyText.length > 50) {
+          // Use OpenAI to extract course codes/names mentioned in conversation
+          const courseExtractionPrompt = `From this conversation, extract any specific courses or classes that the user mentioned wanting to take or add to their schedule. 
+          
+Look for:
+- Course codes (e.g., "CSC 4821", "CSC 4820", "CSC 4841")
+- Course names (e.g., "Game Design", "Interactive Computer Graphics", "Computer Animation")
+- Subject areas mentioned (e.g., "game design classes", "CMII classes")
+
+Return a JSON object with this structure:
+{
+  "courses": [
+    {"code": "CSC 4821", "name": "Fundamentals of Game Design"},
+    {"code": "CSC 4820", "name": "Interactive Computer Graphics"}
+  ],
+  "subjects": ["game design", "CMII"]
+}
+
+If no specific courses are mentioned, return {"courses": [], "subjects": []}.
+
+Conversation:
+${historyText}
+
+Current message: ${message}`;
+
+          const client = getOpenAIClient();
+          if (client) {
+            const completion = await client.chat.completions.create({
+              model: 'gpt-4o-mini',
+              messages: [
+                {
+                  role: 'system',
+                  content: 'You are an expert at extracting course information from conversations. Return only valid JSON.'
+                },
+                {
+                  role: 'user',
+                  content: courseExtractionPrompt
+                }
+              ],
+              max_tokens: 500,
+              temperature: 0.1,
+              response_format: { type: 'json_object' }
+            });
+
+            const extracted = JSON.parse(completion.choices[0].message.content);
+            requestedCourses = extracted.courses || [];
+            
+            if (requestedCourses.length > 0) {
+              console.log(`📚 Extracted ${requestedCourses.length} requested courses from conversation:`, requestedCourses);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('⚠️ Error extracting course preferences:', error.message);
+        // Continue anyway - not critical
+      }
+      
+      // Start pipeline with requested courses
+      await SchedulePlanningPipeline.updateState(sessionId, SchedulePlanningPipeline.STATES.COLLECTING_MAJOR, {
+        requestedCourses: requestedCourses
+      });
       const nextQuestion = SchedulePlanningPipeline.getNextQuestion(SchedulePlanningPipeline.STATES.COLLECTING_MAJOR);
       return res.json({
         success: true,
@@ -138,8 +204,11 @@ router.post('/message', async (req, res) => {
           
           console.log('✅ Extracted major:', major);
           
-          // Update state with extracted major
-          await SchedulePlanningPipeline.updateState(sessionId, SchedulePlanningPipeline.STATES.COLLECTING_WORKLOAD, { major });
+          // Update state with extracted major, preserving requested courses
+          await SchedulePlanningPipeline.updateState(sessionId, SchedulePlanningPipeline.STATES.COLLECTING_WORKLOAD, { 
+            major,
+            requestedCourses: pipelineData.requestedCourses || []
+          });
           
           // Get major context from Pinecone
           let majorContext = null;
@@ -175,10 +244,38 @@ Which would you prefer?`;
             heavy: '16-18'
           };
           
-          await SchedulePlanningPipeline.updateState(sessionId, SchedulePlanningPipeline.STATES.COLLECTING_TRANSCRIPT, {
+          await SchedulePlanningPipeline.updateState(sessionId, SchedulePlanningPipeline.STATES.COLLECTING_YEAR_LEVEL, {
             ...pipelineData,
             workloadPreference,
             creditRange: creditRanges[workloadPreference]
+          });
+          
+          const yearLevelQuestion = SchedulePlanningPipeline.getNextQuestion(SchedulePlanningPipeline.STATES.COLLECTING_YEAR_LEVEL);
+          return res.json({
+            success: true,
+            response: yearLevelQuestion,
+            inPipeline: true,
+            pipelineState: SchedulePlanningPipeline.STATES.COLLECTING_YEAR_LEVEL,
+            timestamp: new Date().toISOString()
+          });
+
+        case SchedulePlanningPipeline.STATES.COLLECTING_YEAR_LEVEL:
+          // Parse year level
+          const yearLevel = SchedulePlanningPipeline.parseYearLevel(message);
+          if (!yearLevel) {
+            // If we can't parse year level, ask again
+            return res.json({
+              success: true,
+              response: "I didn't catch that. Could you please tell me what year you are? Are you a **Freshman**, **Sophomore**, **Junior**, or **Senior**?",
+              inPipeline: true,
+              pipelineState: SchedulePlanningPipeline.STATES.COLLECTING_YEAR_LEVEL,
+              timestamp: new Date().toISOString()
+            });
+          }
+          
+          await SchedulePlanningPipeline.updateState(sessionId, SchedulePlanningPipeline.STATES.COLLECTING_TRANSCRIPT, {
+            ...pipelineData,
+            yearLevel
           });
           
           const transcriptQuestion = SchedulePlanningPipeline.getNextQuestion(SchedulePlanningPipeline.STATES.COLLECTING_TRANSCRIPT);
@@ -215,7 +312,9 @@ Which would you prefer?`;
                 const scheduleResult = await generateSchedule(
                   scheduleInput,
                   majorContext,
-                  pipelineData.workloadPreference || 'medium'
+                  pipelineData.workloadPreference || 'medium',
+                  pipelineData.requestedCourses || [],
+                  pipelineData.yearLevel || null
                 );
                 
                 if (scheduleResult.success) {
@@ -348,6 +447,20 @@ What would you like to do?`;
       }
     }
 
+    // Normalize conversation history format for OpenAI API
+    // Convert from {role: "user", text: "..."} to {role: "user", content: "..."}
+    // Also convert "bot" to "assistant" for OpenAI compatibility
+    const normalizedHistory = conversationHistory.map(msg => {
+      // Handle different message formats
+      const role = msg.role === 'bot' ? 'assistant' : (msg.role === 'user' ? 'user' : 'assistant');
+      const content = msg.content || msg.text || '';
+      
+      return {
+        role: role,
+        content: content
+      };
+    }).filter(msg => msg.content && msg.content.trim().length > 0); // Remove empty messages
+
     // Include transcript context if available
     let transcriptContext = null;
     if (sessionId) {
@@ -358,7 +471,7 @@ What would you like to do?`;
     }
 
     // Enhance conversation history with transcript and schedule context if available
-    let enhancedHistory = conversationHistory;
+    let enhancedHistory = normalizedHistory;
     
     // Add transcript context
     if (transcriptContext) {
@@ -1095,24 +1208,38 @@ router.post('/upload-transcript', upload.single('file'), async (req, res) => {
       });
     }
 
-    // Extract text from PDF
+    // Extract text from PDF using pdf-parse
     let extractedText = '';
+    let rawText = '';
     try {
-      // For now, we'll use a simple approach - process the file buffer as text if it's already text
-      // In production, you'd use pdf-parse or convert PDF to images and use Vision API
       if (req.file.mimetype === 'application/pdf') {
-        // Try to extract text using OpenAI (this is a placeholder - actual implementation would use pdf-parse)
-        // For MVP, we'll store the file and extract text later or use a different method
-        extractedText = await processTranscriptText('PDF transcript uploaded. Text extraction requires PDF parsing library.');
+        // Extract raw text from PDF using pdf-parse
+        const { extractTextFromPDF } = require('./pdfProcessor');
+        rawText = await extractTextFromPDF(req.file.buffer, originalName);
+        
+        // Then analyze and structure it using OpenAI
+        extractedText = await processTranscriptText(rawText);
       } else {
         // If it's a text file, use the buffer directly
-        extractedText = req.file.buffer.toString('utf-8');
-        extractedText = await processTranscriptText(extractedText);
+        rawText = req.file.buffer.toString('utf-8');
+        extractedText = await processTranscriptText(rawText);
       }
+      
+      console.log(`✅ Successfully extracted and analyzed transcript (${extractedText.length} chars)`);
     } catch (error) {
       console.error('❌ Error extracting text from transcript:', error);
-      // Continue anyway - we can extract text later
-      extractedText = 'Text extraction in progress...';
+      // If extraction fails, try to use raw buffer as text
+      try {
+        rawText = req.file.buffer.toString('utf-8');
+        if (rawText && rawText.length > 100) {
+          extractedText = await processTranscriptText(rawText);
+        } else {
+          throw new Error('Could not extract meaningful text from transcript');
+        }
+      } catch (fallbackError) {
+        console.error('❌ Fallback extraction also failed:', fallbackError);
+        extractedText = 'Text extraction failed. Please ensure the PDF contains readable text.';
+      }
     }
 
     // Store transcript in database (but continue even if this fails)
@@ -1183,7 +1310,8 @@ router.post('/upload-transcript', upload.single('file'), async (req, res) => {
       transcriptId: transcriptInfo.id,
       transcriptText: extractedText, // Store text directly in pipeline state as backup
       transcriptFileName: originalName,
-      transcriptFileUrl: fileUrl
+      transcriptFileUrl: fileUrl,
+      requestedCourses: pipelineData.requestedCourses || [] // Preserve requested courses
     });
 
     // Automatically trigger schedule generation
@@ -1216,7 +1344,9 @@ router.post('/upload-transcript', upload.single('file'), async (req, res) => {
       scheduleResult = await generateSchedule(
         scheduleInput,
         majorContext,
-        pipelineData.workloadPreference || 'medium'
+        pipelineData.workloadPreference || 'medium',
+        pipelineData.requestedCourses || [],
+        pipelineData.yearLevel || null
       );
       
       console.log('✅ Schedule generation result:', scheduleResult.success ? 'Success' : 'Failed');
@@ -1564,7 +1694,7 @@ router.post('/generate-schedule', async (req, res) => {
     }
 
     // Generate schedule
-    const result = await generateSchedule(transcript, majorContext, pipelineData.workloadPreference || 'medium');
+    const result = await generateSchedule(transcript, majorContext, pipelineData.workloadPreference || 'medium', pipelineData.requestedCourses || [], pipelineData.yearLevel || null);
 
     if (!result.success) {
       return res.status(500).json({

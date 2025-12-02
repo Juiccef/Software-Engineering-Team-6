@@ -40,6 +40,32 @@ function getCurrentSemester() {
 }
 
 /**
+ * Get the next upcoming semester for schedule planning
+ * @returns {string} - Next semester string like "Spring 2026" or "Fall 2026"
+ */
+function getNextSemester() {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1; // 1-12
+  
+  // Academic year typically runs:
+  // Fall: August-December (months 8-12)
+  // Spring: January-May (months 1-5)
+  // Summer: June-July (months 6-7)
+  
+  if (currentMonth >= 8 && currentMonth <= 12) {
+    // August-December: Currently in Fall, next is Spring of next year
+    return `Spring ${currentYear + 1}`;
+  } else if (currentMonth >= 1 && currentMonth <= 5) {
+    // January-May: Currently in Spring, next is Fall of same year
+    return `Fall ${currentYear}`;
+  } else {
+    // June-July: Summer, next is Fall of same year
+    return `Fall ${currentYear}`;
+  }
+}
+
+/**
  * Generate PDF from schedule data
  * Note: Requires pdfkit library - install with: npm install pdfkit
  * @param {Object} scheduleData - Schedule data object
@@ -73,7 +99,7 @@ async function generateSchedulePDF(scheduleData) {
       
       // Add semester and major info
       doc.fontSize(14);
-      doc.text(`Semester: ${scheduleData.semester || getCurrentSemester()}`);
+      doc.text(`Semester: ${scheduleData.semester || getNextSemester()}`);
       doc.text(`Major: ${scheduleData.major || 'N/A'}`);
       doc.text(`Total Credits: ${scheduleData.totalCredits || 0}`);
       doc.text(`Workload: ${scheduleData.workloadPreference || 'medium'}`);
@@ -111,7 +137,7 @@ async function generateSchedulePDF(scheduleData) {
  */
 function generateNotionTemplate(scheduleData) {
   try {
-    let template = `# ${scheduleData.semester || getCurrentSemester()} Course Schedule\n\n`;
+    let template = `# ${scheduleData.semester || getNextSemester()} Course Schedule\n\n`;
     template += `**Major:** ${scheduleData.major || 'N/A'}\n`;
     template += `**Total Credits:** ${scheduleData.totalCredits || 0}\n`;
     template += `**Workload:** ${scheduleData.workloadPreference || 'medium'}\n\n`;

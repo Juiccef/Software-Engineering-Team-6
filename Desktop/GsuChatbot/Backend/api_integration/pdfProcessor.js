@@ -8,49 +8,38 @@
  */
 
 const { getOpenAIClient } = require('./openaiClient');
+let pdf;
+try {
+  pdf = require('pdf-parse');
+} catch (error) {
+  console.warn('⚠️ pdf-parse not available:', error.message);
+}
 
 /**
- * Extract text from PDF using OpenAI Vision API
+ * Extract text from PDF using pdf-parse library
  * @param {Buffer} pdfBuffer - PDF file buffer
  * @param {string} fileName - Original file name
  * @returns {Promise<string>} - Extracted text
  */
 async function extractTextFromPDF(pdfBuffer, fileName) {
   try {
-    const client = getOpenAIClient();
-    
-    if (!client) {
-      throw new Error('OpenAI client not available');
+    if (!pdf) {
+      throw new Error('pdf-parse library is not installed. Please run: npm install pdf-parse');
     }
-
-    // Convert PDF buffer to base64
-    const base64PDF = pdfBuffer.toString('base64');
-
-    // Use OpenAI Vision API to extract text
-    // Note: OpenAI Vision API works with images, so we'll need to convert PDF pages to images
-    // For now, we'll use a simpler approach with text extraction prompt
     
-    // Alternative: Use OpenAI to analyze the PDF if it's an image-based PDF
-    // For text-based PDFs, we might need a different approach
+    console.log('📄 Extracting text from PDF:', fileName);
     
-    // For MVP, we'll use a prompt that asks OpenAI to extract transcript information
-    // This works best if we send the PDF as an image (first page or all pages)
+    // Use pdf-parse to extract text from PDF
+    const data = await pdf(pdfBuffer);
+    const extractedText = data.text;
     
-    // Since OpenAI Vision API requires images, we'll need to:
-    // 1. Convert PDF pages to images (requires pdf-poppler or similar)
-    // 2. Send each page to OpenAI Vision API
-    // 3. Combine the extracted text
+    console.log(`✅ Extracted ${extractedText.length} characters from PDF`);
     
-    // For now, let's create a function that uses OpenAI to process the PDF
-    // We'll need to install a PDF to image converter or use a different approach
+    if (!extractedText || extractedText.trim().length === 0) {
+      throw new Error('No text could be extracted from the PDF. The PDF may be image-based or corrupted.');
+    }
     
-    // Temporary solution: Return a placeholder that indicates we need PDF-to-image conversion
-    // In production, you would:
-    // 1. Convert PDF to images using pdf-poppler or pdf2pic
-    // 2. Send each image to OpenAI Vision API
-    // 3. Combine results
-    
-    throw new Error('PDF text extraction requires PDF-to-image conversion. Please install pdf-poppler or use an alternative method.');
+    return extractedText;
     
   } catch (error) {
     console.error('❌ Error extracting text from PDF:', error);
@@ -95,10 +84,10 @@ async function extractTextFromPDFWithVision(pdfBuffer, fileName) {
 }
 
 /**
- * Simple text extraction using OpenAI (fallback method)
- * This uses OpenAI to analyze the PDF if it's already in text format
- * @param {string} textContent - Text content from PDF (if already extracted)
- * @returns {Promise<string>} - Processed and structured text
+ * Analyze and structure transcript text using OpenAI
+ * This uses OpenAI to intelligently parse and structure the transcript
+ * @param {string} textContent - Raw text content from PDF
+ * @returns {Promise<string>} - Processed and structured transcript text
  */
 async function processTranscriptText(textContent) {
   try {
@@ -108,34 +97,52 @@ async function processTranscriptText(textContent) {
       throw new Error('OpenAI client not available');
     }
 
-    const prompt = `Extract and structure the following academic transcript information:
-- Course codes and names
-- Grades received
-- Credits earned
-- Semesters/terms
-- Overall GPA if available
+    console.log('🤖 Analyzing transcript with OpenAI...');
 
-Format the output as a structured list. Here's the transcript text:
+    const prompt = `You are an expert at analyzing academic transcripts. Extract and structure ALL information from this transcript.
 
-${textContent}`;
+Extract the following information:
+1. **Student Information**: Name, ID, major (if available)
+2. **GPA Information**: Overall GPA, term GPAs (if available)
+3. **All Completed Courses**: For each course, extract:
+   - Course code (e.g., "CSC 1301", "MATH 1111")
+   - Course name (full name)
+   - Grade received (A, B, C, D, F, P, W, etc.)
+   - Credits earned
+   - Semester/Term taken (Fall 2023, Spring 2024, etc.)
+   - Year taken
+
+4. **In-Progress Courses**: Any courses currently in progress
+5. **Transfer Credits**: If any courses are marked as transfer credits
+
+IMPORTANT:
+- Extract course codes EXACTLY as they appear (e.g., "CSC 1301" not "CSC1301" or "CS 1301")
+- Include ALL courses, even if they have unusual formats
+- If a course code appears multiple times, include all instances
+- Preserve the exact format of course codes (spaces, capitalization)
+
+Format your response as a structured analysis that clearly lists all completed courses with their codes, names, grades, credits, and semesters.`;
 
     const completion = await client.chat.completions.create({
-      model: 'gpt-3.5-turbo',
+      model: 'gpt-4o-mini', // Use a more capable model for better extraction
       messages: [
         {
           role: 'system',
-          content: 'You are an expert at parsing academic transcripts. Extract all relevant course and grade information.'
+          content: 'You are an expert academic transcript analyst. Your job is to extract ALL course information accurately, preserving exact course codes and formatting. Be thorough and precise.'
         },
         {
           role: 'user',
-          content: prompt
+          content: `${prompt}\n\nTranscript text:\n\n${textContent.substring(0, 15000)}` // Limit to avoid token limits
         }
       ],
-      max_tokens: 2000,
-      temperature: 0.3
+      max_tokens: 3000,
+      temperature: 0.1 // Low temperature for accuracy
     });
 
-    return completion.choices[0].message.content;
+    const analyzedText = completion.choices[0].message.content;
+    console.log('✅ Transcript analysis complete');
+    
+    return analyzedText;
     
   } catch (error) {
     console.error('❌ Error processing transcript text:', error);

@@ -8,7 +8,13 @@
  * @version 1.0.0
  */
 
-const supabase = require('./supaBase');
+let supabase;
+try {
+  supabase = require('./supaBase');
+} catch (error) {
+  console.warn('⚠️ Could not load supabase, using in-memory only:', error.message);
+  supabase = null;
+}
 
 // In-memory fallback for pipeline state (used when Supabase is unavailable)
 const inMemoryState = new Map();
@@ -18,6 +24,7 @@ const STATES = {
   IDLE: 'idle',
   COLLECTING_MAJOR: 'collecting_major',
   COLLECTING_WORKLOAD: 'collecting_workload',
+  COLLECTING_YEAR_LEVEL: 'collecting_year_level',
   COLLECTING_TRANSCRIPT: 'collecting_transcript',
   PROCESSING: 'processing',
   GENERATING_SCHEDULE: 'generating_schedule',
@@ -88,6 +95,30 @@ class SchedulePlanningPipeline {
   }
 
   /**
+   * Parse year level from user message
+   * @param {string} message - User message
+   * @returns {string|null} - Year level: 'freshman', 'sophomore', 'junior', 'senior', or null
+   */
+  static parseYearLevel(message) {
+    if (!message || typeof message !== 'string') return null;
+    
+    const lowerMessage = message.toLowerCase();
+    
+    // Check for year level keywords
+    if (lowerMessage.includes('freshman') || lowerMessage.includes('first year') || lowerMessage.includes('1st year') || lowerMessage.includes('first-year')) {
+      return 'freshman';
+    } else if (lowerMessage.includes('sophomore') || lowerMessage.includes('second year') || lowerMessage.includes('2nd year') || lowerMessage.includes('second-year')) {
+      return 'sophomore';
+    } else if (lowerMessage.includes('junior') || lowerMessage.includes('third year') || lowerMessage.includes('3rd year') || lowerMessage.includes('third-year')) {
+      return 'junior';
+    } else if (lowerMessage.includes('senior') || lowerMessage.includes('fourth year') || lowerMessage.includes('4th year') || lowerMessage.includes('fourth-year')) {
+      return 'senior';
+    }
+    
+    return null;
+  }
+
+  /**
    * Get the next question based on current state
    * @param {string} state - Current pipeline state
    * @param {Object} context - Current context data
@@ -101,8 +132,11 @@ class SchedulePlanningPipeline {
       case STATES.COLLECTING_WORKLOAD:
         return "Perfect! Now, what kind of workload are you looking for? You can choose:\n\n• **Light** (12-13 credits) - Minimum for full-time students\n• **Medium** (14-15 credits) - Balanced course load\n• **Heavy** (16-18 credits) - Maximum course load\n\nWhich would you prefer?";
       
-          case STATES.COLLECTING_TRANSCRIPT:
-            return "Excellent! To create the best schedule for you, I can use your transcript to see what courses you've already completed. You can upload it using the file upload button, or type 'skip' if you don't have one available.";
+      case STATES.COLLECTING_YEAR_LEVEL:
+        return "Great! What year are you in school? Are you a **Freshman**, **Sophomore**, **Junior**, or **Senior**?";
+      
+      case STATES.COLLECTING_TRANSCRIPT:
+        return "Excellent! To create the best schedule for you, I can use your transcript to see what courses you've already completed. You can upload it using the file upload button, or type 'skip' if you don't have one available.";
       
       case STATES.PROCESSING:
         return "I'm processing your transcript and gathering information about your major requirements. This may take a moment...";

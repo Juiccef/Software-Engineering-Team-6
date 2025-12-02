@@ -22,7 +22,7 @@ const defaultSettings = {
   // Chat Behavior
   responseStyle: 'balanced', // concise, balanced, detailed
   personality: 'friendly', // formal, friendly, casual
-  contextMemory: 10,
+  contextMemory: 20, // Increased default from 10 to 20 for better context retention
   
   // UI Preferences
   autoScroll: true,

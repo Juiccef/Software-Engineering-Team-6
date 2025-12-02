@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { GSU } from '../constants/colors';
 import QuickActions from './QuickActions';
+import YearLevelButtons from './YearLevelButtons';
 import { uploadFile, formatFileSize, getFileIcon, isFileTypeSupported } from '../services/fileService';
 
 function ChatBox({ messages = [], onSendMessage, onQuickAction, className = "", style = {} }) {
@@ -8,6 +9,22 @@ function ChatBox({ messages = [], onSendMessage, onQuickAction, className = "", 
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const fileRef = useRef(null);
+
+  // Check if a message is asking for year level
+  const isYearLevelQuestion = (text) => {
+    if (!text) return false;
+    const lowerText = text.toLowerCase();
+    // Remove markdown formatting for better matching
+    const cleanText = lowerText.replace(/\*\*/g, '').replace(/\*/g, '');
+    return (
+      cleanText.includes('what year') ||
+      cleanText.includes('year are you') ||
+      cleanText.includes('year you are') ||
+      (cleanText.includes('freshman') && (cleanText.includes('sophomore') || cleanText.includes('junior') || cleanText.includes('senior'))) ||
+      (cleanText.includes('year') && (cleanText.includes('school') || cleanText.includes('student'))) ||
+      (cleanText.includes('freshman') && cleanText.includes('sophomore') && cleanText.includes('junior') && cleanText.includes('senior'))
+    );
+  };
 
   const onSubmit = (e) => {
     e.preventDefault();
@@ -241,6 +258,12 @@ function ChatBox({ messages = [], onSendMessage, onQuickAction, className = "", 
               {m.showQuickActions && onQuickAction && (
                 <div style={{ alignSelf: "flex-start", marginTop: 8 }}>
                   <QuickActions onActionClick={onQuickAction} />
+                </div>
+              )}
+              {/* Show year level buttons if message is asking for year level */}
+              {m.role === "bot" && (m.pipelineState === 'collecting_year_level' || isYearLevelQuestion(m.text)) && (
+                <div style={{ alignSelf: "flex-start", marginTop: 12, width: "100%" }}>
+                  <YearLevelButtons onSendMessage={onSendMessage} />
                 </div>
               )}
             </div>

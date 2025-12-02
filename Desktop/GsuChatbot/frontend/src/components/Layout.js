@@ -498,12 +498,12 @@ function Layout({
                         </div>
                       </div>
 
-                      {/* Check Degree Progress */}
+                      {/* Get Campus Contacts */}
                       <div 
                         onClick={() => onSendMessage && onSendMessage({
                           id: Math.random().toString(36).slice(2),
                           role: "user",
-                          text: "Check your degree progress"
+                          text: "Get campus contacts"
                         })}
                         style={{ 
                           background: "var(--card)",
@@ -542,7 +542,7 @@ function Layout({
                           fontSize: "1.4rem",
                           flexShrink: 0
                         }}>
-                          🎓
+                          📞
                         </div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <p style={{ 
@@ -552,7 +552,7 @@ function Layout({
                             fontWeight: 600,
                             lineHeight: 1.3
                           }}>
-                            Check your degree progress
+                            Get Campus Contacts
                           </p>
                           <p style={{ 
                             margin: 0, 
@@ -560,7 +560,7 @@ function Layout({
                             opacity: 0.65,
                             lineHeight: 1.4
                           }}>
-                            Review remaining requirements and plan your path to graduation
+                            Find contact information for departments, offices, and services
                           </p>
                         </div>
                         <div style={{ 
