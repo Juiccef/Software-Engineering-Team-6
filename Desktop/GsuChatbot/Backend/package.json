@@ -1,0 +1,36 @@
+{
+  "name": "gsu-chatbot-backend",
+  "version": "1.0.0",
+  "description": "Backend API for GSU Panther Chatbot with OpenAI integration",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "upload-pinecone": "node scripts/uploadToPinecone.js",
+    "test": "node test-openai.js"
+  },
+  "keywords": [
+    "chatbot",
+    "openai",
+    "gsu",
+    "api"
+  ],
+  "author": "GSU Software Engineering Team 6",
+  "license": "MIT",
+  "dependencies": {
+    "@pinecone-database/pinecone": "^2.0.1",
+    "@supabase/supabase-js": "^2.81.1",
+    "body-parser": "^1.20.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.5",
+    "helmet": "^7.1.0",
+    "multer": "^2.0.2",
+    "openai": "^4.20.1",
+    "pdfkit": "^0.17.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  }
+}
