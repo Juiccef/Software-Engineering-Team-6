@@ -156,8 +156,31 @@ function App() {
     }
   }, [screen, currentSessionId]);
 
-  const startNewChat = () => {
-    setCurrentSessionId(chatHistoryService.generateId());
+  const startNewChat = async () => {
+    // Save current conversation before starting a new one
+    if (currentSessionId && messages.length > 0) {
+      // Check if there are any user messages (not just bot messages)
+      const hasUserMessages = messages.some(msg => msg.role === 'user');
+      if (hasUserMessages) {
+        console.log('💾 Saving current conversation before starting new chat...');
+        try {
+          await saveChatSession({
+            id: currentSessionId,
+            messages: messages,
+            type: 'chat'
+          });
+          // Refresh history after saving
+          await loadChatHistory();
+          console.log('✅ Current conversation saved to history');
+        } catch (error) {
+          console.error('❌ Failed to save conversation before new chat:', error);
+        }
+      }
+    }
+    
+    // Now start a new chat
+    const newSessionId = chatHistoryService.generateId();
+    setCurrentSessionId(newSessionId);
     setMessages([
       {
         id: "1",
@@ -189,16 +212,36 @@ function App() {
   const saveChatSession = async (sessionData) => {
     try {
       const { id, title, messages, type } = sessionData;
+      
+      // Validate we have messages to save
+      if (!messages || messages.length === 0) {
+        console.warn('⚠️ No messages to save, skipping');
+        return null;
+      }
+
+      console.log('💾 Saving chat session:', {
+        id: id || 'new',
+        messageCount: messages.length,
+        type: type || 'chat',
+        hasUserMessages: messages.some(m => m.role === 'user')
+      });
+
       const result = await chatHistoryService.saveSession({
         id,
         title: title || chatHistoryService.generateTitle(messages),
         messages,
         type: type || 'chat'
       });
-      console.log('✅ Chat session saved:', result);
+      
+      console.log('✅ Chat session saved successfully:', result?.id || 'unknown');
       return result;
     } catch (error) {
       console.error('❌ Failed to save chat session:', error);
+      console.error('❌ Session data was:', {
+        id: sessionData.id,
+        messageCount: sessionData.messages?.length,
+        type: sessionData.type
+      });
       return null;
     }
   };
@@ -214,16 +257,40 @@ function App() {
   };
 
   const handleSendMessage = async (message) => {
+    // Ensure we have a session ID before saving
+    let sessionId = currentSessionId;
+    if (!sessionId) {
+      sessionId = chatHistoryService.generateId();
+      setCurrentSessionId(sessionId);
+      console.log('✅ Created new session ID:', sessionId);
+      // Save initial bot messages when session is first created
+      if (messages.length > 0) {
+        await saveChatSession({
+          id: sessionId,
+          messages: messages,
+          type: 'chat'
+        });
+      }
+    }
+
     // Skip API call for file uploads, bot messages, or system messages
     if (message.file || message.role === "bot" || message.role === "system") {
       const updated = [...messages, message];
       setMessages(updated);
-      if (currentSessionId) {
-        await saveChatSession({
-          id: currentSessionId,
+      // Always save, even if it's the first message
+      try {
+        const savedSession = await saveChatSession({
+          id: sessionId,
           messages: updated,
           type: 'chat'
         });
+        if (savedSession) {
+          // Refresh history after saving
+          await loadChatHistory();
+          console.log('✅ File/bot message saved and history refreshed');
+        }
+      } catch (saveError) {
+        console.error('❌ Error saving file/bot message:', saveError);
       }
       return;
     }
@@ -234,13 +301,13 @@ function App() {
     let fallbackResponse = '';
 
         try {
-          const response = await fetch('/api/chat/message', {
+          const response = await fetch('http://localhost:5002/api/chat/message', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               message: message.text,
               conversationHistory: messages.slice(-(chatSettings?.contextMemory || 10)),
-              sessionId: currentSessionId,
+              sessionId: sessionId,
               settings: chatSettings
             })
           });
@@ -266,12 +333,20 @@ function App() {
       const finalMessages = [...updated, botResponse];
       setMessages(finalMessages);
 
-      if (currentSessionId) {
-        await saveChatSession({
-          id: currentSessionId,
+      // Always save the session after getting a response
+      try {
+        const savedSession = await saveChatSession({
+          id: sessionId,
           messages: finalMessages,
           type: 'chat'
         });
+        if (savedSession) {
+          // Refresh history after saving to show the new conversation
+          await loadChatHistory();
+          console.log('✅ Conversation saved and history refreshed');
+        }
+      } catch (saveError) {
+        console.error('❌ Error saving conversation:', saveError);
       }
 
       setIsTyping(false);
@@ -285,12 +360,19 @@ function App() {
       };
       const finalMessages = [...updated, botResponse];
       setMessages(finalMessages);
-      if (currentSessionId) {
-        await saveChatSession({
-          id: currentSessionId,
+      // Save even on error
+      try {
+        const savedSession = await saveChatSession({
+          id: sessionId,
           messages: finalMessages,
           type: 'chat'
         });
+        if (savedSession) {
+          await loadChatHistory();
+          console.log('✅ Conversation saved (error case)');
+        }
+      } catch (saveError) {
+        console.error('❌ Error saving conversation (error case):', saveError);
       }
     }
 
@@ -311,7 +393,29 @@ function App() {
     if (message) handleSendMessage({ role: "user", text: message });
   };
 
-  const go = (screenName) => setScreen(screenName);
+  const go = async (screenName) => {
+    // If navigating away from chat, save current conversation
+    if (screen === "chat" && screenName !== "chat" && currentSessionId && messages.length > 0) {
+      const hasUserMessages = messages.some(msg => msg.role === 'user');
+      if (hasUserMessages) {
+        console.log('💾 Saving conversation before navigating away...');
+        try {
+          await saveChatSession({
+            id: currentSessionId,
+            messages: messages,
+            type: 'chat'
+          });
+          // Refresh history if navigating to history screen
+          if (screenName === "history") {
+            await loadChatHistory();
+          }
+        } catch (error) {
+          console.error('❌ Failed to save conversation on navigation:', error);
+        }
+      }
+    }
+    setScreen(screenName);
+  };
 
   return (
     <div style={{

@@ -371,15 +371,20 @@ async function sendToChatGPTWithContext(message, conversationHistory = [], optio
  * @returns {Promise<Object>} - Major context with requirements, courses, and prerequisites
  */
 async function getMajorContext(major, topK = 10) {
+  // DEFENSIVE: Always return a valid object structure, even on errors
+  const defaultContext = {
+    major: major || null,
+    requirements: [],
+    availableCourses: [],
+    prerequisites: {},
+    degreeAudit: null,
+    rawContext: []
+  };
+  
   try {
     if (!major || typeof major !== 'string') {
-      return {
-        major: null,
-        requirements: [],
-        availableCourses: [],
-        prerequisites: {},
-        degreeAudit: null
-      };
+      console.warn('⚠️ getMajorContext: Invalid major parameter, returning default context');
+      return defaultContext;
     }
 
     // Search for major-specific information
@@ -441,23 +446,29 @@ async function getMajorContext(major, topK = 10) {
       }
     }
 
-    return {
-      major: major,
-      requirements: requirements,
-      availableCourses: availableCourses,
-      prerequisites: prerequisites,
-      degreeAudit: degreeAudit,
-      rawContext: uniqueChunks
+    // Ensure all fields are valid before returning
+    const result = {
+      major: major || null,
+      requirements: Array.isArray(requirements) ? requirements : [],
+      availableCourses: Array.isArray(availableCourses) ? availableCourses : [],
+      prerequisites: prerequisites && typeof prerequisites === 'object' ? prerequisites : {},
+      degreeAudit: degreeAudit || null,
+      rawContext: Array.isArray(uniqueChunks) ? uniqueChunks : []
     };
+    
+    console.log(`✅ getMajorContext: Retrieved context for ${major}`, {
+      requirementsCount: result.requirements.length,
+      availableCoursesCount: result.availableCourses.length,
+      prerequisitesCount: Object.keys(result.prerequisites).length
+    });
+    
+    return result;
   } catch (error) {
     console.error('❌ Error getting major context:', error);
+    // Always return valid object structure, never null
     return {
-      major: major,
-      requirements: [],
-      availableCourses: [],
-      prerequisites: {},
-      degreeAudit: null,
-      error: error.message
+      ...defaultContext,
+      error: error.message || 'Unknown error'
     };
   }
 }

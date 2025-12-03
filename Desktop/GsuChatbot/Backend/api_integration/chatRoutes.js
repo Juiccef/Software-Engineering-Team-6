@@ -5,7 +5,7 @@ const { sendToChatGPTWithContext, isPineconeAvailable, getMajorContext } = requi
 const supabase = require('./supaBase');
 const { uploadFile, getFileUrl, listFiles, deleteFile } = require('./supaBase');
 const SchedulePlanningPipeline = require('./schedulePlanningPipeline');
-const { processTranscriptText } = require('./pdfProcessor');
+const { processTranscriptText, extractStructuredTranscriptData } = require('./pdfProcessor');
 const { generateSchedule, validateSchedule } = require('./scheduleGenerator');
 const { generateSchedulePDF, generateNotionTemplate, generateCSV } = require('./scheduleExporter');
 
@@ -932,7 +932,7 @@ router.get('/sessions/:id', async (req, res) => {
 router.put('/sessions/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const { title, messages } = req.body;
+    const { title, messages, type } = req.body;
 
     if (!supabase) {
       return res.status(500).json({
@@ -941,11 +941,68 @@ router.put('/sessions/:id', async (req, res) => {
       });
     }
 
-    // Update session title if provided
-    if (title) {
+    // Check if session exists
+    const { data: existingSession, error: checkError } = await supabase
+      .from('chat_sessions')
+      .select('id')
+      .eq('id', id)
+      .single();
+
+    // If session doesn't exist, create it
+    if (checkError || !existingSession) {
+      console.log('📝 Session not found, creating new session with ID:', id);
+      const { data: sessionData, error: sessionError } = await supabase
+        .from('chat_sessions')
+        .insert({
+          id: id, // Use provided ID
+          title: title || 'New Chat',
+          session_type: type || 'chat'
+        })
+        .select()
+        .single();
+
+      if (sessionError) {
+        console.error('❌ Supabase session insert error:', sessionError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to create chat session',
+          details: sessionError.message
+        });
+      }
+
+      // Insert messages if any
+      if (messages && messages.length > 0) {
+        const messageInserts = messages.map(msg => ({
+          session_id: sessionData.id,
+          role: msg.role === 'bot' ? 'assistant' : msg.role,
+          message: msg.text
+        }));
+
+        const { error: messagesError } = await supabase
+          .from('chat_messages')
+          .insert(messageInserts);
+
+        if (messagesError) {
+          console.error('❌ Supabase messages insert error:', messagesError);
+        }
+      }
+
+      return res.json({
+        success: true,
+        session: sessionData,
+        message: 'Chat session created successfully'
+      });
+    }
+
+    // Update existing session
+    const updateData = {};
+    if (title) updateData.title = title;
+    if (type) updateData.session_type = type;
+
+    if (Object.keys(updateData).length > 0) {
       const { error: sessionError } = await supabase
         .from('chat_sessions')
-        .update({ title })
+        .update(updateData)
         .eq('id', id);
 
       if (sessionError) {
@@ -998,8 +1055,44 @@ router.put('/sessions/:id', async (req, res) => {
       }
     }
 
+    // Get updated session with messages
+    const { data: updatedSession, error: fetchError } = await supabase
+      .from('chat_sessions')
+      .select(`
+        *,
+        chat_messages (
+          id,
+          role,
+          message,
+          created_at
+        )
+      `)
+      .eq('id', id)
+      .single();
+
+    if (fetchError) {
+      console.error('❌ Error fetching updated session:', fetchError);
+    }
+
+    // Transform the data to match frontend expectations
+    const transformedSession = updatedSession ? {
+      id: updatedSession.id,
+      title: updatedSession.title,
+      created_at: updatedSession.created_at,
+      updated_at: updatedSession.updated_at || updatedSession.created_at,
+      type: updatedSession.session_type || 'chat',
+      message_count: updatedSession.chat_messages ? updatedSession.chat_messages.length : 0,
+      messages: updatedSession.chat_messages ? updatedSession.chat_messages.map(msg => ({
+        id: msg.id,
+        role: msg.role === 'assistant' ? 'bot' : msg.role,
+        text: msg.message,
+        timestamp: msg.created_at
+      })) : []
+    } : null;
+
     res.json({
       success: true,
+      session: transformedSession,
       message: 'Chat session updated successfully'
     });
 
@@ -1173,74 +1266,104 @@ router.post('/upload-transcript', upload.single('file'), async (req, res) => {
     const originalName = req.file.originalname.replace(/[^a-zA-Z0-9.-]/g, '_');
     const fileName = `transcripts/${timestamp}_${originalName}`;
 
-    // Upload file to User_Files bucket
+    // OPTIMIZATION: Run PDF extraction and file upload in parallel
     let uploadResult;
     let fileUrl;
+    let rawText = '';
     
-    try {
-      uploadResult = await uploadFile(
-        'User_Files',
-        fileName,
-        req.file.buffer,
-        req.file.mimetype
-      );
+    // Start both operations in parallel
+    const [uploadPromise, extractPromise] = await Promise.allSettled([
+      // Upload file to Supabase
+      (async () => {
+        try {
+          const result = await uploadFile(
+            'User_Files',
+            fileName,
+            req.file.buffer,
+            req.file.mimetype
+          );
+          const url = await getFileUrl('User_Files', fileName, 86400); // 24 hours
+          return { result, url };
+        } catch (uploadError) {
+          console.error('❌ Transcript upload error:', uploadError);
+          if (uploadError.message && uploadError.message.includes('ENOTFOUND')) {
+            throw new Error('Supabase connection failed: Unable to connect to Supabase. Please check your SUPABASE_URL in the .env file.');
+          }
+          throw uploadError;
+        }
+      })(),
+      // Extract text from PDF (skip OpenAI analysis - we'll use raw text directly)
+      (async () => {
+        try {
+          if (req.file.mimetype === 'application/pdf') {
+            const { extractTextFromPDF } = require('./pdfProcessor');
+            return await extractTextFromPDF(req.file.buffer, originalName);
+          } else {
+            return req.file.buffer.toString('utf-8');
+          }
+        } catch (error) {
+          console.error('❌ Error extracting text from transcript:', error);
+          // Fallback: try to use raw buffer as text
+          try {
+            const fallbackText = req.file.buffer.toString('utf-8');
+            if (fallbackText && fallbackText.length > 100) {
+              return fallbackText;
+            }
+            throw new Error('Could not extract meaningful text from transcript');
+          } catch (fallbackError) {
+            console.error('❌ Fallback extraction also failed:', fallbackError);
+            throw new Error('Text extraction failed. Please ensure the PDF contains readable text.');
+          }
+        }
+      })()
+    ]);
 
-      // Get a signed URL for the uploaded file
-      fileUrl = await getFileUrl('User_Files', fileName, 86400); // 24 hours
-    } catch (uploadError) {
-      console.error('❌ Transcript upload error:', uploadError);
-      
-      // Check if it's a DNS/connection error
-      if (uploadError.message && uploadError.message.includes('ENOTFOUND')) {
+    // Handle upload result
+    if (uploadPromise.status === 'fulfilled') {
+      uploadResult = uploadPromise.value.result;
+      fileUrl = uploadPromise.value.url;
+    } else {
+      const error = uploadPromise.reason;
+      if (error.message && error.message.includes('Supabase connection failed')) {
         return res.status(500).json({
           success: false,
           error: 'Supabase connection failed',
-          details: 'Unable to connect to Supabase. Please check your SUPABASE_URL in the .env file. The hostname may be incorrect or the Supabase project may not exist.',
+          details: error.message,
           suggestion: 'Verify your Supabase project URL and ensure it\'s correct in Backend/.env'
         });
       }
-      
-      // For other errors, provide generic message
       return res.status(500).json({
         success: false,
         error: 'File upload failed',
-        details: uploadError.message || 'Unknown error occurred during file upload'
+        details: error.message || 'Unknown error occurred during file upload'
       });
     }
 
-    // Extract text from PDF using pdf-parse
-    let extractedText = '';
-    let rawText = '';
-    try {
-      if (req.file.mimetype === 'application/pdf') {
-        // Extract raw text from PDF using pdf-parse
-        const { extractTextFromPDF } = require('./pdfProcessor');
-        rawText = await extractTextFromPDF(req.file.buffer, originalName);
-        
-        // Then analyze and structure it using OpenAI
-        extractedText = await processTranscriptText(rawText);
-      } else {
-        // If it's a text file, use the buffer directly
-        rawText = req.file.buffer.toString('utf-8');
-        extractedText = await processTranscriptText(rawText);
-      }
-      
-      console.log(`✅ Successfully extracted and analyzed transcript (${extractedText.length} chars)`);
-    } catch (error) {
-      console.error('❌ Error extracting text from transcript:', error);
-      // If extraction fails, try to use raw buffer as text
-      try {
-        rawText = req.file.buffer.toString('utf-8');
-        if (rawText && rawText.length > 100) {
-          extractedText = await processTranscriptText(rawText);
-        } else {
-          throw new Error('Could not extract meaningful text from transcript');
-        }
-      } catch (fallbackError) {
-        console.error('❌ Fallback extraction also failed:', fallbackError);
-        extractedText = 'Text extraction failed. Please ensure the PDF contains readable text.';
-      }
+    // Handle text extraction result
+    if (extractPromise.status === 'fulfilled') {
+      rawText = extractPromise.value;
+      console.log(`✅ Successfully extracted transcript text (${rawText.length} chars)`);
+    } else {
+      return res.status(500).json({
+        success: false,
+        error: 'Text extraction failed',
+        details: extractPromise.reason.message || 'Could not extract text from transcript'
+      });
     }
+
+    // Extract structured transcript data (JSON format) for faster processing
+    console.log('📊 Extracting structured transcript data...');
+    let structuredTranscriptData = null;
+    try {
+      structuredTranscriptData = await extractStructuredTranscriptData(rawText);
+      console.log(`✅ Extracted structured data: ${structuredTranscriptData.courses?.length || 0} courses`);
+    } catch (structError) {
+      console.warn('⚠️ Error extracting structured data, will use raw text:', structError.message);
+      // Continue with raw text if structured extraction fails
+    }
+
+    // Use raw text for backward compatibility
+    const extractedText = rawText;
 
     // Store transcript in database (but continue even if this fails)
     let transcriptData = null;
@@ -1254,6 +1377,7 @@ router.post('/upload-transcript', upload.single('file'), async (req, res) => {
           file_name: originalName,
           file_url: fileUrl,
           extracted_text: extractedText,
+          structured_data: structuredTranscriptData ? JSON.stringify(structuredTranscriptData) : null, // Store structured JSON
           major: pipelineData.major || null,
           workload_preference: pipelineData.workloadPreference || null,
           credit_range: pipelineData.creditRange || null
@@ -1273,6 +1397,7 @@ router.post('/upload-transcript', upload.single('file'), async (req, res) => {
           file_name: originalName,
           file_url: fileUrl,
           extracted_text: extractedText,
+          structured_data: structuredTranscriptData ? JSON.stringify(structuredTranscriptData) : null,
           major: pipelineData.major || null,
           workload_preference: pipelineData.workloadPreference || null,
           credit_range: pipelineData.creditRange || null
@@ -1287,6 +1412,7 @@ router.post('/upload-transcript', upload.single('file'), async (req, res) => {
         file_name: originalName,
         file_url: fileUrl || 'file-uploaded',
         extracted_text: extractedText,
+        structured_data: structuredTranscriptData ? JSON.stringify(structuredTranscriptData) : null,
         major: pipelineData.major || null,
         workload_preference: pipelineData.workloadPreference || null,
         credit_range: pipelineData.creditRange || null
@@ -1299,6 +1425,7 @@ router.post('/upload-transcript', upload.single('file'), async (req, res) => {
       fileName: originalName,
       fileUrl: fileUrl || 'uploaded',
       extractedText: extractedText,
+      structuredData: structuredTranscriptData, // Store structured data for faster processing
       major: pipelineData.major,
       workloadPreference: pipelineData.workloadPreference,
       creditRange: pipelineData.creditRange
@@ -1309,25 +1436,35 @@ router.post('/upload-transcript', upload.single('file'), async (req, res) => {
       ...pipelineData,
       transcriptId: transcriptInfo.id,
       transcriptText: extractedText, // Store text directly in pipeline state as backup
+      transcriptStructuredData: structuredTranscriptData, // Store structured data
       transcriptFileName: originalName,
       transcriptFileUrl: fileUrl,
       requestedCourses: pipelineData.requestedCourses || [] // Preserve requested courses
     });
 
     // Automatically trigger schedule generation
+    // OPTIMIZATION: Fetch major context in parallel with schedule generation prep
     let scheduleResult = null;
     try {
       console.log('🔄 Starting schedule generation...');
       
-      // Get major context
-      let majorContext = null;
-      if (isPineconeAvailable() && pipelineData.major) {
-        console.log('📚 Fetching major context from Pinecone...');
-        majorContext = await getMajorContext(pipelineData.major, 10);
-      }
+      // OPTIMIZATION: Start fetching major context while preparing schedule input
+      const isPineconeAvail = isPineconeAvailable();
+      const hasMajor = !!pipelineData.major;
+      
+      console.log('🔍 Schedule generation context check:', {
+        pineconeAvailable: isPineconeAvail,
+        hasMajor: hasMajor,
+        major: pipelineData.major,
+        yearLevel: pipelineData.yearLevel || 'not provided',
+        workloadPreference: pipelineData.workloadPreference || 'medium'
+      });
+      
+      const majorContextPromise = isPineconeAvail && hasMajor
+        ? getMajorContext(pipelineData.major, 10)
+        : Promise.resolve(null);
 
-      // Generate schedule using transcript data
-      // Use extracted text from pipeline state if transcriptData doesn't have it
+      // Prepare schedule input while major context is being fetched
       const scheduleInput = {
         ...transcriptInfo,
         extracted_text: extractedText || transcriptInfo.extractedText || '',
@@ -1338,16 +1475,49 @@ router.post('/upload-transcript', upload.single('file'), async (req, res) => {
       console.log('⚙️ Generating schedule with:', {
         major: scheduleInput.major,
         workload: pipelineData.workloadPreference,
-        hasText: !!scheduleInput.extracted_text
+        hasText: !!scheduleInput.extracted_text,
+        textLength: (scheduleInput.extracted_text || '').length
       });
       
-      scheduleResult = await generateSchedule(
-        scheduleInput,
-        majorContext,
-        pipelineData.workloadPreference || 'medium',
-        pipelineData.requestedCourses || [],
-        pipelineData.yearLevel || null
-      );
+      // Wait for major context (should be ready by now or very soon)
+      let majorContext = await majorContextPromise;
+      
+      // DETAILED LOGGING: Track majorContext state
+      if (majorContext) {
+        console.log('📚 Major context fetched from Pinecone:', {
+          hasMajor: !!majorContext.major,
+          requirementsCount: Array.isArray(majorContext.requirements) ? majorContext.requirements.length : 0,
+          availableCoursesCount: Array.isArray(majorContext.availableCourses) ? majorContext.availableCourses.length : 0,
+          prerequisitesCount: majorContext.prerequisites && typeof majorContext.prerequisites === 'object' ? Object.keys(majorContext.prerequisites).length : 0,
+          hasError: !!majorContext.error
+        });
+      } else {
+        console.warn('⚠️ Major context is null - will use fallback course recommendations');
+        console.log('📋 Fallback will use:', {
+          yearLevel: pipelineData.yearLevel || 'generic',
+          hasTranscript: !!scheduleInput.extracted_text
+        });
+      }
+      
+      try {
+        scheduleResult = await generateSchedule(
+          scheduleInput,
+          majorContext,
+          pipelineData.workloadPreference || 'medium',
+          pipelineData.requestedCourses || [],
+          pipelineData.yearLevel || null
+        );
+      } catch (scheduleError) {
+        console.error('❌ Error in generateSchedule:', scheduleError);
+        console.error('❌ Error stack:', scheduleError.stack);
+        console.error('❌ majorContext at error time:', {
+          isNull: majorContext === null,
+          isUndefined: majorContext === undefined,
+          type: typeof majorContext,
+          value: majorContext
+        });
+        throw scheduleError; // Re-throw to be caught by outer try-catch
+      }
       
       console.log('✅ Schedule generation result:', scheduleResult.success ? 'Success' : 'Failed');
 
@@ -1690,7 +1860,20 @@ router.post('/generate-schedule', async (req, res) => {
     // Get major context
     let majorContext = null;
     if (isPineconeAvailable() && pipelineData.major) {
+      console.log('📚 Fetching major context for generate-schedule endpoint...');
       majorContext = await getMajorContext(pipelineData.major, 10);
+      console.log('📚 Major context fetched:', {
+        hasMajor: !!majorContext?.major,
+        availableCoursesCount: Array.isArray(majorContext?.availableCourses) ? majorContext.availableCourses.length : 0
+      });
+    } else {
+      console.warn('⚠️ Pinecone not available or no major, majorContext will be null');
+    }
+
+    // Ensure transcript has structured data if available
+    if (pipelineData.transcriptStructuredData) {
+      transcript.structuredData = pipelineData.transcriptStructuredData;
+      console.log('✅ Using structured transcript data from pipeline state');
     }
 
     // Generate schedule

@@ -150,10 +150,142 @@ Format your response as a structured analysis that clearly lists all completed c
   }
 }
 
+/**
+ * Extract and structure transcript data into JSON format
+ * This is the main function that extracts all transcript information into a structured format
+ * @param {string} textContent - Raw text content from PDF
+ * @returns {Promise<Object>} - Structured transcript data in JSON format
+ */
+async function extractStructuredTranscriptData(textContent) {
+  try {
+    const client = getOpenAIClient();
+    
+    if (!client) {
+      throw new Error('OpenAI client not available');
+    }
+
+    console.log('📊 Extracting structured transcript data...');
+
+    const prompt = `Extract ALL information from this academic transcript and return it as a structured JSON object.
+
+Extract the following information:
+1. **Student Information**: 
+   - Name (if available)
+   - Student ID (if available)
+   - Major (if available)
+
+2. **GPA Information**: 
+   - Overall GPA (if available)
+   - Term GPAs (if available)
+
+3. **All Completed Courses**: For each course, extract:
+   - Course code (EXACT format, e.g., "CSC 1301", "MATH 1111", "ENGL 1101")
+   - Course name (full name)
+   - Grade received (A, B, C, D, F, P, S, W, etc.)
+   - Credits earned (number)
+   - Semester/Term taken (Fall 2023, Spring 2024, etc.)
+   - Year taken
+
+4. **In-Progress Courses**: Any courses currently in progress (if any)
+
+5. **Transfer Credits**: If any courses are marked as transfer credits
+
+CRITICAL REQUIREMENTS:
+- Extract course codes EXACTLY as they appear (preserve spacing, capitalization)
+- Include ALL courses that have been completed (have a grade)
+- Do NOT include courses that are in-progress, withdrawn (W), or incomplete
+- If a course appears multiple times (retaken), include all instances
+- Normalize course codes to standard format: "SUBJ XXXX" (e.g., "CSC 1301" not "CSC1301")
+
+Return ONLY a valid JSON object with this exact structure:
+{
+  "student": {
+    "name": "Student Name",
+    "id": "Student ID",
+    "major": "Major Name"
+  },
+  "gpa": {
+    "overall": 3.5,
+    "terms": []
+  },
+  "courses": [
+    {
+      "code": "CSC 1301",
+      "name": "Principles of Computer Science I",
+      "grade": "A",
+      "credits": 3,
+      "semester": "Fall 2023",
+      "year": 2023
+    }
+  ],
+  "inProgress": [],
+  "transferCredits": [],
+  "totalCredits": 45
+}
+
+Transcript text:
+${textContent.substring(0, 10000)}`;
+
+    const completion = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are an expert academic transcript parser. Extract ALL information accurately into structured JSON. Return ONLY valid JSON, no additional text.'
+        },
+        {
+          role: 'user',
+          content: prompt
+        }
+      ],
+      max_tokens: 4000,
+      temperature: 0.1,
+      response_format: { type: 'json_object' }
+    });
+
+    const structuredData = JSON.parse(completion.choices[0].message.content);
+    
+    // Normalize course codes
+    if (structuredData.courses && Array.isArray(structuredData.courses)) {
+      structuredData.courses = structuredData.courses.map(course => {
+        let normalizedCode = course.code || '';
+        const codeMatch = normalizedCode.match(/^([A-Z]{2,4})\s*(\d{4})$/i);
+        if (codeMatch) {
+          normalizedCode = `${codeMatch[1].toUpperCase()} ${codeMatch[2]}`;
+        }
+        
+        return {
+          ...course,
+          code: normalizedCode,
+          codeUpper: normalizedCode.toUpperCase().trim()
+        };
+      });
+    }
+    
+    console.log(`✅ Extracted structured transcript data: ${structuredData.courses?.length || 0} courses`);
+    
+    return structuredData;
+    
+  } catch (error) {
+    console.error('❌ Error extracting structured transcript data:', error);
+    // Return minimal structure on error
+    return {
+      student: {},
+      gpa: {},
+      courses: [],
+      inProgress: [],
+      transferCredits: [],
+      totalCredits: 0,
+      error: error.message
+    };
+  }
+}
+
 module.exports = {
   extractTextFromPDF,
   extractTextFromPDFWithVision,
-  processTranscriptText
+  processTranscriptText,
+  extractStructuredTranscriptData
 };
 
 

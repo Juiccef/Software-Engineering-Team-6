@@ -5,7 +5,7 @@
 
 class ChatHistoryService {
   constructor() {
-    this.baseUrl = 'http://localhost:5001/api/chat';
+    this.baseUrl = 'http://localhost:5002/api/chat';
   }
 
   // Generate a unique ID for sessions
@@ -43,7 +43,42 @@ class ChatHistoryService {
   // Save a chat session
   async saveSession(sessionData) {
     try {
-      const response = await fetch(`${this.baseUrl}/sessions`, {
+      // If session has an ID, try to update it first; otherwise create new
+      const hasId = sessionData.id && sessionData.id !== 'undefined' && sessionData.id !== 'null';
+      let response;
+      let result;
+
+      if (hasId) {
+        // Try to update existing session
+        try {
+          response = await fetch(`${this.baseUrl}/sessions/${sessionData.id}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              title: sessionData.title || this.generateTitle(sessionData.messages),
+              messages: sessionData.messages || [],
+              type: sessionData.type || 'chat'
+            })
+          });
+
+          if (response.ok) {
+            result = await response.json();
+            if (result.success) {
+              console.log('✅ Session updated in backend:', result.session?.id || sessionData.id);
+              return result.session || { id: sessionData.id, ...result };
+            }
+          }
+          // If PUT fails (session doesn't exist), fall through to POST
+          console.log('⚠️ Session update failed, creating new session');
+        } catch (updateError) {
+          console.log('⚠️ Update failed, creating new session:', updateError.message);
+        }
+      }
+
+      // Create new session (either no ID provided, or update failed)
+      response = await fetch(`${this.baseUrl}/sessions`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -59,10 +94,10 @@ class ChatHistoryService {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
 
-      const result = await response.json();
+      result = await response.json();
       
       if (result.success) {
-        console.log('✅ Session saved to backend:', result.session);
+        console.log('✅ Session saved to backend:', result.session?.id || 'new');
         return result.session;
       } else {
         throw new Error(result.error || 'Failed to save session');
@@ -82,10 +117,16 @@ class ChatHistoryService {
       };
 
       const history = await this.getHistory();
-      history.unshift(session);
+      // Update existing or add new
+      const existingIndex = history.findIndex(s => s.id === id);
+      if (existingIndex >= 0) {
+        history[existingIndex] = { ...history[existingIndex], ...session, updated_at: new Date().toISOString() };
+      } else {
+        history.unshift(session);
+      }
       localStorage.setItem('gsu_chat_history', JSON.stringify(history));
       
-      console.log('✅ Session saved to localStorage:', id);
+      console.log(`✅ Session ${existingIndex >= 0 ? 'updated' : 'saved'} to localStorage:`, id);
       return session;
     }
   }
@@ -225,4 +266,5 @@ class ChatHistoryService {
   }
 }
 
-export default new ChatHistoryService();
+const chatHistoryService = new ChatHistoryService();
+export default chatHistoryService;

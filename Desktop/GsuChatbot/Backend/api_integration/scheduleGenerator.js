@@ -120,10 +120,10 @@ Return a JSON object with this structure:
 }
 
 Transcript text:
-${transcriptText.substring(0, 12000)}`; // Increased limit for better analysis
+${transcriptText.substring(0, 8000)}`; // Reduced to 8k for faster processing
 
     const completion = await client.chat.completions.create({
-      model: 'gpt-4o-mini', // Use more capable model for better extraction
+      model: 'gpt-4o-mini', // Fast and accurate model
       messages: [
         {
           role: 'system',
@@ -134,7 +134,7 @@ ${transcriptText.substring(0, 12000)}`; // Increased limit for better analysis
           content: prompt
         }
       ],
-      max_tokens: 3000,
+      max_tokens: 2000, // Reduced for faster response
       temperature: 0.1, // Low temperature for accuracy
       response_format: { type: 'json_object' }
     });
@@ -200,8 +200,58 @@ async function generateSchedule(transcriptData, majorContext, workloadPreference
       throw new Error('OpenAI client not available');
     }
 
-    // Parse completed courses
-    const completedCourses = await parseCompletedCourses(transcriptData.extracted_text || '');
+    // DEFENSIVE: Ensure majorContext is always a valid object, never null
+    if (!majorContext || typeof majorContext !== 'object') {
+      console.warn('⚠️ majorContext is null or invalid, using default empty object');
+      majorContext = {
+        major: transcriptData.major || null,
+        requirements: [],
+        availableCourses: [],
+        prerequisites: {},
+        degreeAudit: null
+      };
+    }
+    
+    // Ensure availableCourses is always an array
+    if (!Array.isArray(majorContext.availableCourses)) {
+      console.warn('⚠️ majorContext.availableCourses is not an array, defaulting to empty array');
+      majorContext.availableCourses = [];
+    }
+    
+    // Ensure requirements is always an array
+    if (!Array.isArray(majorContext.requirements)) {
+      majorContext.requirements = [];
+    }
+    
+    // Ensure prerequisites is always an object
+    if (!majorContext.prerequisites || typeof majorContext.prerequisites !== 'object') {
+      majorContext.prerequisites = {};
+    }
+    
+    console.log('📊 majorContext state:', {
+      hasMajor: !!majorContext.major,
+      requirementsCount: majorContext.requirements.length,
+      availableCoursesCount: majorContext.availableCourses.length,
+      prerequisitesCount: Object.keys(majorContext.prerequisites).length,
+      yearLevel: yearLevel
+    });
+
+    // Parse completed courses - use structured data if available for faster processing
+    let completedCourses = [];
+    
+    if (transcriptData.structuredData && transcriptData.structuredData.courses && Array.isArray(transcriptData.structuredData.courses)) {
+      // Use pre-extracted structured data (much faster!)
+      console.log('✅ Using structured transcript data for course parsing');
+      completedCourses = transcriptData.structuredData.courses.map(course => ({
+        ...course,
+        codeUpper: (course.code || '').toUpperCase().trim()
+      }));
+      console.log(`📋 Loaded ${completedCourses.length} courses from structured data`);
+    } else {
+      // Fallback to parsing from text
+      console.log('⚠️ No structured data available, parsing from text...');
+      completedCourses = await parseCompletedCourses(transcriptData.extracted_text || '');
+    }
 
     // Get all course codes in multiple formats for better matching (do this first)
     const completedCourseCodes = completedCourses.map(c => {
@@ -225,9 +275,131 @@ async function generateSchedule(transcriptData, majorContext, workloadPreference
 
     // Prepare context for schedule generation
     // Filter out completed courses from available courses context
-    let availableCourses = majorContext.availableCourses?.join('\n') || 'No course information available.';
+    let availableCourses = majorContext.availableCourses.length > 0
+      ? majorContext.availableCourses.join('\n')
+      : null;
     
-    if (completedCourses.length > 0 && availableCourses !== 'No course information available.') {
+    // FALLBACK: If no major context courses available, use year-level based recommendations
+    if (!availableCourses || availableCourses === 'No course information available.') {
+      console.log('📚 No major context courses available, using year-level fallback recommendations');
+      
+      // Comprehensive year-level based course recommendations with electives
+      const fallbackCourses = {
+        freshman: [
+          // Core CS Intro Courses
+          'CSC 1301: Principles of Computer Science I (3 credits) - Prerequisites: None',
+          'CSC 1302: Principles of Computer Science II (3 credits) - Prerequisites: CSC 1301',
+          // Math Foundation
+          'MATH 1111: College Algebra (3 credits) - Prerequisites: None',
+          'MATH 1113: Precalculus (3 credits) - Prerequisites: MATH 1111',
+          'MATH 2211: Calculus I (4 credits) - Prerequisites: MATH 1113',
+          // English Composition
+          'ENGL 1101: English Composition I (3 credits) - Prerequisites: None',
+          'ENGL 1102: English Composition II (3 credits) - Prerequisites: ENGL 1101',
+          // Social Sciences (Electives)
+          'HIST 2110: Survey of United States History (3 credits) - Prerequisites: None',
+          'POLS 1101: American Government (3 credits) - Prerequisites: None',
+          'PSYC 1101: Introduction to Psychology (3 credits) - Prerequisites: None',
+          'SOCI 1101: Introduction to Sociology (3 credits) - Prerequisites: None',
+          // Natural Sciences (Electives)
+          'BIOL 1103: Principles of Biology I (3 credits) - Prerequisites: None',
+          'CHEM 1211: Principles of Chemistry I (3 credits) - Prerequisites: MATH 1111',
+          'PHYS 1111: Introductory Physics I (3 credits) - Prerequisites: MATH 1111',
+          // Arts & Humanities (Electives)
+          'ARTH 1100: Art Appreciation (3 credits) - Prerequisites: None',
+          'MUSI 1100: Music Appreciation (3 credits) - Prerequisites: None',
+          'PHIL 1010: Introduction to Philosophy (3 credits) - Prerequisites: None'
+        ],
+        sophomore: [
+          // Core CS Courses (after prerequisites)
+          'CSC 2720: Data Structures (3 credits) - Prerequisites: CSC 1302, MATH 2211',
+          'CSC 2302: Computer Organization and Programming (3 credits) - Prerequisites: CSC 1302',
+          'CSC 2510: Theoretical Foundations of Computer Science (3 credits) - Prerequisites: CSC 1302, MATH 2211',
+          // Advanced Math
+          'MATH 2212: Calculus II (4 credits) - Prerequisites: MATH 2211',
+          'MATH 2215: Linear Algebra (3 credits) - Prerequisites: MATH 2211',
+          'MATH 2420: Discrete Mathematics (3 credits) - Prerequisites: MATH 2211',
+          // Physics
+          'PHYS 2211: Principles of Physics I (4 credits) - Prerequisites: MATH 2211',
+          'PHYS 2212: Principles of Physics II (4 credits) - Prerequisites: PHYS 2211, MATH 2212',
+          // Business Electives
+          'ACCT 2101: Principles of Accounting I (3 credits) - Prerequisites: None',
+          'ECON 2105: Principles of Macroeconomics (3 credits) - Prerequisites: None',
+          'MKTG 3010: Principles of Marketing (3 credits) - Prerequisites: None',
+          // Communication Electives
+          'COMM 1000: Human Communication (3 credits) - Prerequisites: None',
+          'JOUR 1000: Introduction to Mass Communication (3 credits) - Prerequisites: None',
+          // Foreign Language Electives
+          'SPAN 1001: Elementary Spanish I (3 credits) - Prerequisites: None',
+          'FREN 1001: Elementary French I (3 credits) - Prerequisites: None'
+        ],
+        junior: [
+          // Upper-Division CS Core
+          'CSC 3210: Computer Organization and Architecture (4 credits) - Prerequisites: CSC 2302',
+          'CSC 3320: System-Level Programming (3 credits) - Prerequisites: CSC 2720',
+          'CSC 4350: Software Engineering (3 credits) - Prerequisites: CSC 2720',
+          'CSC 4330: Programming Language Concepts (3 credits) - Prerequisites: CSC 2720, MATH 2420',
+          'CSC 4220: Database Systems (3 credits) - Prerequisites: CSC 2720',
+          'CSC 4520: Operating Systems (3 credits) - Prerequisites: CSC 3210, CSC 3320',
+          'CSC 4610: Computer Networks (3 credits) - Prerequisites: CSC 2720',
+          'CSC 4730: Artificial Intelligence (3 credits) - Prerequisites: CSC 2720, MATH 2420',
+          // CS Electives
+          'CSC 4210: Computer Graphics (3 credits) - Prerequisites: CSC 2720, MATH 2215',
+          'CSC 4310: Compiler Construction (3 credits) - Prerequisites: CSC 4330',
+          'CSC 4410: Computer Security (3 credits) - Prerequisites: CSC 3210',
+          'CSC 4510: Distributed Systems (3 credits) - Prerequisites: CSC 4520',
+          // Business/Management Electives
+          'MGMT 3101: Principles of Management (3 credits) - Prerequisites: None',
+          'MIS 3010: Management Information Systems (3 credits) - Prerequisites: None',
+          'ENTR 3101: Entrepreneurship (3 credits) - Prerequisites: None',
+          // Statistics/Data Science
+          'STAT 2000: Elementary Statistics (3 credits) - Prerequisites: MATH 1111',
+          'MATH 3030: Applied Statistics (3 credits) - Prerequisites: MATH 2212'
+        ],
+        senior: [
+          // Capstone & Advanced CS
+          'CSC 4990: Senior Project (3 credits) - Prerequisites: Senior standing, CSC 4350',
+          'CSC 4995: Senior Seminar (1 credit) - Prerequisites: Senior standing',
+          'CSC 4996: Senior Project II (3 credits) - Prerequisites: CSC 4990',
+          // Advanced CS Courses
+          'CSC 3210: Computer Organization and Architecture (4 credits) - Prerequisites: CSC 2302',
+          'CSC 4350: Software Engineering (3 credits) - Prerequisites: CSC 2720',
+          'CSC 4520: Operating Systems (3 credits) - Prerequisites: CSC 3210, CSC 3320',
+          'CSC 4610: Computer Networks (3 credits) - Prerequisites: CSC 2720',
+          'CSC 4730: Artificial Intelligence (3 credits) - Prerequisites: CSC 2720, MATH 2420',
+          'CSC 4800: Special Topics in Computer Science (3 credits) - Prerequisites: Varies',
+          // Advanced CS Electives
+          'CSC 4210: Computer Graphics (3 credits) - Prerequisites: CSC 2720, MATH 2215',
+          'CSC 4310: Compiler Construction (3 credits) - Prerequisites: CSC 4330',
+          'CSC 4410: Computer Security (3 credits) - Prerequisites: CSC 3210',
+          'CSC 4510: Distributed Systems (3 credits) - Prerequisites: CSC 4520',
+          'CSC 4710: Machine Learning (3 credits) - Prerequisites: CSC 4730, STAT 2000',
+          'CSC 4820: Advanced Algorithms (3 credits) - Prerequisites: CSC 2510, MATH 2420',
+          // Interdisciplinary Electives
+          'MIS 4010: Advanced Management Information Systems (3 credits) - Prerequisites: MIS 3010',
+          'MATH 3030: Applied Statistics (3 credits) - Prerequisites: MATH 2212',
+          'PHIL 3010: Ethics in Technology (3 credits) - Prerequisites: None',
+          'COMM 3010: Technical Writing (3 credits) - Prerequisites: ENGL 1102'
+        ]
+      };
+      
+      if (yearLevel && fallbackCourses[yearLevel]) {
+        availableCourses = fallbackCourses[yearLevel].join('\n');
+        console.log(`✅ Using ${yearLevel} fallback courses (${fallbackCourses[yearLevel].length} courses)`);
+      } else {
+        // Generic fallback if no year level
+        availableCourses = [
+          'CSC 1301: Principles of Computer Science I',
+          'CSC 1302: Principles of Computer Science II',
+          'CSC 2720: Data Structures',
+          'CSC 3210: Computer Organization and Architecture',
+          'CSC 4350: Software Engineering'
+        ].join('\n');
+        console.log('✅ Using generic fallback courses');
+      }
+    }
+    
+    if (completedCourses.length > 0 && availableCourses) {
       // Remove completed courses from available courses text
       const completedCodesForFiltering = completedCourseCodes;
       const availableCoursesLines = availableCourses.split('\n');
@@ -241,7 +413,9 @@ async function generateSchedule(transcriptData, majorContext, workloadPreference
       console.log(`🔍 Filtered available courses context (removed ${availableCoursesLines.length - filteredCourses.length} completed courses)`);
     }
     
-    const majorRequirements = majorContext.requirements?.join('\n') || 'No specific requirements found.';
+    const majorRequirements = majorContext.requirements.length > 0
+      ? majorContext.requirements.join('\n')
+      : 'No specific requirements found.';
     const prerequisites = JSON.stringify(majorContext.prerequisites || {});
     
     // Build year level context for course recommendations
@@ -275,16 +449,49 @@ ${requestedList}
 If these courses are available and fit the credit requirements, include them in the schedule.`;
     }
 
-    const prompt = `Generate a course schedule for a ${workloadPreference} workload (${creditRange.min}-${creditRange.max} credits) for a ${transcriptData.major} major.${requestedCoursesSection}
+    // Build enhanced year-level guidance
+    let yearLevelGuidance = '';
+    if (yearLevel) {
+      const guidance = {
+        freshman: `CRITICAL: This is a FRESHMAN student. Recommend:
+- Introductory major courses (1000-2000 level) that have NO prerequisites or only basic prerequisites
+- General Education courses (English, Math, History, Science, Arts)
+- Foundation courses like CSC 1301, MATH 1111, ENGL 1101
+- Mix of major courses (2-3) and general education/electives (2-3 courses)
+- Include electives from other departments (Psychology, Sociology, Art, Music, Philosophy) to fulfill general education requirements`,
+        sophomore: `CRITICAL: This is a SOPHOMORE student. Recommend:
+- Lower-division major courses (2000-3000 level) that build on freshman prerequisites
+- Courses like CSC 2720 (requires CSC 1302), MATH 2212 (requires MATH 2211), PHYS 2211
+- Continue with general education requirements
+- Include business, communication, or foreign language electives
+- Mix of major courses (3-4) and electives/general education (1-2 courses)`,
+        junior: `CRITICAL: This is a JUNIOR student. Recommend:
+- Upper-division major courses (3000-4000 level) that require sophomore prerequisites
+- Advanced courses like CSC 3210, CSC 4350, CSC 4520, CSC 4730
+- CS electives and specialized topics
+- Include interdisciplinary electives (Business, Statistics, Management)
+- Focus on major courses (4-5) with 1-2 electives from other departments`,
+        senior: `CRITICAL: This is a SENIOR student. Recommend:
+- Capstone courses (CSC 4990, CSC 4995, CSC 4996)
+- Advanced/specialized CS courses (4000+ level)
+- CS electives in areas of interest
+- Any remaining major requirements
+- Advanced electives from other departments (Ethics, Technical Writing, Advanced MIS)
+- Focus on completing major requirements and capstone projects`
+      };
+      yearLevelGuidance = guidance[yearLevel] || '';
+    }
+
+    const prompt = `Generate a course schedule for a ${workloadPreference} workload (${creditRange.min}-${creditRange.max} credits) for a ${transcriptData.major || 'Computer Science'} major.${requestedCoursesSection}
 
 Student Information:
-${yearLevelContext}${completedCourses.length > 0 ? `IMPORTANT - Already Completed Courses (DO NOT RECOMMEND THESE):
+${yearLevelContext}${yearLevelGuidance ? `\n${yearLevelGuidance}\n` : ''}${completedCourses.length > 0 ? `\nIMPORTANT - Already Completed Courses (DO NOT RECOMMEND THESE):
 ${completedCoursesList}
 
 CRITICAL: Do NOT include any of these courses in the schedule. The student has already taken them:
 ${completedCourseCodes.join(', ')}
 
-` : yearLevel ? 'The student has not provided a transcript. Based on their year level, recommend appropriate courses for their academic standing.\n' : 'The student has not provided a transcript, so assume they are starting fresh or early in their program.\n'}
+` : yearLevel ? '\nThe student has not provided a transcript. Based on their year level, recommend appropriate courses that match their academic progression.\n' : '\nThe student has not provided a transcript, so recommend foundational courses appropriate for their level.\n'}
 
 Major Requirements:
 ${majorRequirements}
@@ -296,12 +503,12 @@ Prerequisites:
 ${prerequisites}
 
 Generate a schedule that:
-1. ${completedCourses.length > 0 ? `CRITICAL: ONLY includes courses that are NOT in the completed courses list. The student has ALREADY TAKEN these courses: ${completedCourseCodes.slice(0, 20).join(', ')}${completedCourseCodes.length > 20 ? ' (and more)' : ''}. DO NOT recommend any of these courses.` : ''}${yearLevel ? `CRITICAL: The student is a ${yearLevel}. ${completedCourses.length > 0 ? 'Even though they have completed some courses, ' : ''}Recommend courses appropriate for their year level. ${yearLevel === 'freshman' ? 'Focus on introductory courses (1000-2000 level) like CSC 1301, MATH 1111, ENGL 1101.' : yearLevel === 'sophomore' ? 'Focus on lower-division major courses (2000-3000 level) like CSC 2720, MATH 2212, CSC 2302.' : yearLevel === 'junior' ? 'Focus on upper-division major courses (3000-4000 level) like CSC 3210, CSC 4350, CSC 4330.' : 'Focus on advanced/capstone courses (4000+ level) like CSC 4990, senior electives, and advanced topics courses.'}` : completedCourses.length === 0 ? 'Includes courses needed for the major' : ''}
-2. Respects prerequisites (don't suggest courses where prerequisites aren't met)
-3. Fits within ${creditRange.min}-${creditRange.max} credits
-4. Only includes course codes, names, and credits (no sections, times, professors, or locations)
-5. ${completedCourses.length > 0 ? `DO NOT duplicate any courses the student has already completed. Check course codes carefully - if a course code matches any in the completed list (even with different spacing), DO NOT include it.` : 'Start with foundational courses if this appears to be a new student'}
-6. When selecting courses from the available courses list, cross-reference with the completed courses list to ensure no duplicates
+1. ${yearLevel ? `CRITICAL: The student is a ${yearLevel}. ${completedCourses.length > 0 ? 'Even though they have completed some courses, ' : ''}Recommend courses appropriate for their year level and academic progression. ${yearLevelGuidance}` : completedCourses.length > 0 ? `CRITICAL: ONLY includes courses that are NOT in the completed courses list. The student has ALREADY TAKEN these courses: ${completedCourseCodes.slice(0, 20).join(', ')}${completedCourseCodes.length > 20 ? ' (and more)' : ''}. DO NOT recommend any of these courses.` : 'Includes courses needed for the major and general education requirements'}
+2. ${yearLevel === 'freshman' ? 'Focus on courses with NO prerequisites or basic prerequisites. Mix major courses with general education.' : yearLevel === 'sophomore' ? 'Focus on courses that build on freshman prerequisites. Include both major courses and electives.' : yearLevel === 'junior' ? 'Focus on upper-division major courses. Include CS electives and interdisciplinary courses.' : yearLevel === 'senior' ? 'Include capstone courses and advanced electives. Complete remaining major requirements.' : 'Respects prerequisites (don\'t suggest courses where prerequisites aren\'t met)'}
+3. ${yearLevel ? 'Include a mix of major courses AND electives from other departments (Business, Arts, Humanities, Social Sciences, Natural Sciences) to provide a well-rounded education.' : 'Include a balanced mix of major courses and general education/electives'}
+4. Fits within ${creditRange.min}-${creditRange.max} credits
+5. Only includes course codes, names, and credits (no sections, times, professors, or locations)
+6. ${completedCourses.length > 0 ? `DO NOT duplicate any courses the student has already completed. Check course codes carefully.` : 'Start with foundational courses appropriate for the student\'s level'}
 
 Format as JSON with this structure:
 {
@@ -318,10 +525,18 @@ Format as JSON with this structure:
   ]
 }
 
+CRITICAL CREDIT ACCURACY REQUIREMENTS:
+- Extract credits EXACTLY as shown in the available courses list
+- Common credit values: 1 credit (seminars), 3 credits (most courses), 4 credits (lab courses, calculus, physics)
+- Examples: CSC 3210 is 4 credits, MATH 2211 is 4 credits, PHYS 2211 is 4 credits, CSC 4995 is 1 credit
+- Do NOT assume all courses are 3 credits - check the course description for the exact credit value
+- The totalCredits must equal the sum of all course credits in the schedule
+
 IMPORTANT: 
 - Use the semester "${getNextSemester()}" for the semester field
 - Do NOT include sections, days, times, professors, or locations in the response
-- Only include course code, name, and credits`;
+- Only include course code, name, and credits
+- Ensure credits are accurate and match the course descriptions provided`;
 
     const completion = await client.chat.completions.create({
       model: 'gpt-3.5-turbo',
